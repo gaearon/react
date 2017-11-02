@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 describe('ReactDOMIframe', () => {
   var React;
   var ReactDOM;

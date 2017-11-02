@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 describe('ReactDOMSelect', () => {
   var React;
   var ReactDOM;

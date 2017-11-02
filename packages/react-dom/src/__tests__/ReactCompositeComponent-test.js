@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 var ChildUpdates;
 var MorphingComponent;
 var React;

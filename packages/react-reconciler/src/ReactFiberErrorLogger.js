@@ -7,8 +7,6 @@
  * @flow
  */
 
-'use strict';
-
 import type {CapturedError} from './ReactFiberScheduler';
 
 const invariant = require('fbjs/lib/invariant');

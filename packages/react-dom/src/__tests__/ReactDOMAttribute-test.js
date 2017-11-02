@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 describe('ReactDOM unknown attribute', () => {
   var React;
   var ReactDOM;

@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-'use strict';
-
 require('../shared/ReactDOMInjection');
 
 var ReactVersion = require('shared/ReactVersion');

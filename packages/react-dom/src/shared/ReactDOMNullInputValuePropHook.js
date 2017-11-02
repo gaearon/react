@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-'use strict';
-
 if (__DEV__) {
   var {ReactDebugCurrentFrame} = require('shared/ReactGlobalSharedState');
   var warning = require('fbjs/lib/warning');

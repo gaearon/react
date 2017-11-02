@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 // NOTE: We're explicitly not using JSX in this file. This is intended to test
 // classic JS without JSX.
 

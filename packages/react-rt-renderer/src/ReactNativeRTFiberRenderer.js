@@ -7,8 +7,6 @@
  * @flow
  */
 
-'use strict';
-
 const ReactFiberReconciler = require('react-reconciler');
 const emptyObject = require('fbjs/lib/emptyObject');
 const invariant = require('fbjs/lib/invariant');

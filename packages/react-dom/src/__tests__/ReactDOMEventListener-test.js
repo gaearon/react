@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 var EVENT_TARGET_PARAM = 1;
 
 describe('ReactDOMEventListener', () => {

@@ -6,7 +6,6 @@
  *
  * @flow
  */
-'use strict';
 
 var EventPluginHub = require('events/EventPluginHub');
 var EventPluginRegistry = require('events/EventPluginRegistry');

@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 var EventPluginHub;
 var EventPluginRegistry;
 var React;

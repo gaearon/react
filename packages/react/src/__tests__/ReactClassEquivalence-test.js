@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 var spawnSync = require('child_process').spawnSync;
 var path = require('path');
 

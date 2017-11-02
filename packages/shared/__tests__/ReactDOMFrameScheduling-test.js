@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 describe('ReactDOMFrameScheduling', () => {
   it('warns when requestAnimationFrame is not polyfilled in the browser', () => {
     const previousRAF = global.requestAnimationFrame;

@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-'use strict';
-
 // Mock of the Native Hooks
 // TODO: Should this move into the components themselves? E.g. focusable
 

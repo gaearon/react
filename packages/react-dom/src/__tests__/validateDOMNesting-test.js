@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 var validateDOMNesting;
 
 // https://html.spec.whatwg.org/multipage/syntax.html#special

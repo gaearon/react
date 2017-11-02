@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-'use strict';
-
 var EventPluginRegistry = require('events/EventPluginRegistry');
 var ReactEventEmitterMixin = require('events/ReactEventEmitterMixin');
 

@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 var {HostComponent} = require('shared/ReactTypeOfWork');
 
 var EventPluginHub;

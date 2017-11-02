@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 let createRenderer;
 let React;
 let ReactDOM;

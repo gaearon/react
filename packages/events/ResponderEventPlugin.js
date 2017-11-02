@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-'use strict';
-
 var ReactTreeTraversal = require('shared/ReactTreeTraversal');
 
 var EventPluginUtils = require('./EventPluginUtils');

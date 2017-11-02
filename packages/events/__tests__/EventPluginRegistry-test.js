@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 describe('EventPluginRegistry', () => {
   var EventPluginRegistry;
   var createPlugin;

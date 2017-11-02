@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 var emptyFunction = require('fbjs/lib/emptyFunction');
 
 describe('ReactDOMInput', () => {

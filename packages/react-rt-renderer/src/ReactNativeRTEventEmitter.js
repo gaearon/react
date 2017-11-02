@@ -6,7 +6,6 @@
  *
  * @flow
  */
-'use strict';
 
 var ReactGenericBatching = require('events/ReactGenericBatching');
 // Module provided by RN:

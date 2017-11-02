@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 describe('ReactMultiChild', () => {
   function normalizeCodeLocInfo(str) {
     return str && str.replace(/\(at .+?:\d+\)/g, '(at **)');

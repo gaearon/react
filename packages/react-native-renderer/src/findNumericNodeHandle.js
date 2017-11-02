@@ -6,7 +6,6 @@
  *
  * @flow
  */
-'use strict';
 
 var findNodeHandle = require('./findNodeHandle');
 

@@ -6,7 +6,6 @@
  *
  * @flow
  */
-'use strict';
 
 // Module provided by RN:
 const UIManager = require('UIManager');

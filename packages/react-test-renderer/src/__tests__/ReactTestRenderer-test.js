@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 var React = require('react');
 var ReactTestRenderer = require('react-test-renderer');
 var prettyFormat = require('pretty-format');

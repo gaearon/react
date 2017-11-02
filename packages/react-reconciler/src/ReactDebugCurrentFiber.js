@@ -7,8 +7,6 @@
  * @flow
  */
 
-'use strict';
-
 var {ReactDebugCurrentFrame} = require('shared/ReactGlobalSharedState');
 
 if (__DEV__) {

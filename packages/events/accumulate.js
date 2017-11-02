@@ -7,8 +7,6 @@
  * @flow
  */
 
-'use strict';
-
 var invariant = require('fbjs/lib/invariant');
 
 /**

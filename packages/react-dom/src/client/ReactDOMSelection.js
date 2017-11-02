@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-'use strict';
-
 var getNodeForCharacterOffset = require('./getNodeForCharacterOffset');
 var getTextContentAccessor = require('./getTextContentAccessor');
 var {TEXT_NODE} = require('../shared/HTMLNodeType');

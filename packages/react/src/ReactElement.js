@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-'use strict';
-
 var ReactCurrentOwner = require('./ReactCurrentOwner');
 var hasOwnProperty = Object.prototype.hasOwnProperty;
 

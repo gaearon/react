@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 let createReactNativeComponentClass;
 let React;
 let ReactNative;

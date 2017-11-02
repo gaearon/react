@@ -12,8 +12,6 @@
  * that support it.
  */
 
-'use strict';
-
 var ReactCurrentOwner = require('./ReactCurrentOwner');
 var ReactElement = require('./ReactElement');
 

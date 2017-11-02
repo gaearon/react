@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 jest.mock('../events/isEventSupported');
 
 describe('EventPluginHub', () => {

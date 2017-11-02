@@ -7,8 +7,6 @@
  * @flow
  */
 
-'use strict';
-
 const {CSStatefulComponent} = require('CSStatefulComponent');
 const ReactFiberReconciler = require('react-reconciler');
 const ReactVersion = require('shared/ReactVersion');

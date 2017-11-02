@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-'use strict';
-
 // TODO: move into react or fbjs
 
 var deepFreezeAndThrowOnMutationInDev = function() {};

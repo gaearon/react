@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 describe('SimpleEventPlugin', function() {
   var React;
   var ReactDOM;

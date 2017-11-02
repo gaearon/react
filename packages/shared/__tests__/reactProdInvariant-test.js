@@ -6,7 +6,6 @@
  *
  * @emails react-core
  */
-'use strict';
 
 var reactProdInvariant;
 

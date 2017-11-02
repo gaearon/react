@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-'use strict';
-
 var ReactVersion = require('shared/ReactVersion');
 var ReactFeatureFlags = require('shared/ReactFeatureFlags');
 

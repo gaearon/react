@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 describe('quoteAttributeValueForBrowser', () => {
   // TODO: can we express this test with only public API?
   var quoteAttributeValueForBrowser = require('../shared/quoteAttributeValueForBrowser');

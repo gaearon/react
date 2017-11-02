@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 describe('ReactDOMInvalidARIAHook', () => {
   var React;
   var ReactTestUtils;

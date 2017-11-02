@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 describe('ReactDebugFiberPerf', () => {
   let React;
   let ReactCallReturn;

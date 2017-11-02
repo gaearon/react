@@ -10,8 +10,6 @@
 // NOTE: We're explicitly not using JSX here. This is intended to test
 // the current stack addendum without having source location added by babel.
 
-'use strict';
-
 var React;
 var ReactTestUtils;
 

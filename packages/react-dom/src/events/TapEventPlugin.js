@@ -7,8 +7,6 @@
  * @flow
  */
 
-'use strict';
-
 var EventPluginUtils = require('events/EventPluginUtils');
 var EventPropagators = require('events/EventPropagators');
 var TouchEventUtils = require('fbjs/lib/TouchEventUtils');

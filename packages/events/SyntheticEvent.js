@@ -7,8 +7,6 @@
 
 /* eslint valid-typeof: 0 */
 
-'use strict';
-
 var emptyFunction = require('fbjs/lib/emptyFunction');
 var invariant = require('fbjs/lib/invariant');
 

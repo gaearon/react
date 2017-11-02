@@ -7,8 +7,6 @@
  * @flow
  */
 
-'use strict';
-
 // TODO: bundle Flow types with the package.
 export type {
   HostConfig,

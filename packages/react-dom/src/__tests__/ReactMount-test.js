@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 const {COMMENT_NODE} = require('../shared/HTMLNodeType');
 
 const invariant = require('invariant');

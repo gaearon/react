@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-'use strict';
-
 require('art/modes/current').setCurrent(
   // Change to 'art/modes/dom' for easier debugging via SVG
   require('art/modes/fast-noSideEffects'),

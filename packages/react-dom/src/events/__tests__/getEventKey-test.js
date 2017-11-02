@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 // TODO: can we express this test with only public API?
 var getEventKey = require('../getEventKey');
 

@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 describe('ReactDOMComponent', () => {
   var React;
   var ReactTestUtils;

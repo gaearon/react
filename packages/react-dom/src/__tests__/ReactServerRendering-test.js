@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 var ExecutionEnvironment;
 var React;
 var ReactDOM;

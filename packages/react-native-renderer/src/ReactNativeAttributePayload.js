@@ -6,7 +6,6 @@
  *
  * @flow
  */
-'use strict';
 
 // Modules provided by RN:
 var deepDiffer = require('deepDiffer');

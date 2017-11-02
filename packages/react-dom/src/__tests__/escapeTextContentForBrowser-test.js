@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 describe('escapeTextContentForBrowser', () => {
   // TODO: can we express this test with only public API?
   var escapeTextContentForBrowser = require('../shared/escapeTextContentForBrowser');

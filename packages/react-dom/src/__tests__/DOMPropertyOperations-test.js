@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 describe('DOMPropertyOperations', () => {
   var React;
   var ReactDOM;

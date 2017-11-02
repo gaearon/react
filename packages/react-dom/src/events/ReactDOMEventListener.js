@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-'use strict';
-
 var ReactGenericBatching = require('events/ReactGenericBatching');
 var ReactFiberTreeReflection = require('shared/ReactFiberTreeReflection');
 var ReactTypeOfWork = require('shared/ReactTypeOfWork');

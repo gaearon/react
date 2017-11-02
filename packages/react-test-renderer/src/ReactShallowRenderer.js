@@ -6,8 +6,6 @@
  *
  */
 
-'use strict';
-
 const React = require('react');
 const describeComponentFrame = require('shared/describeComponentFrame');
 const getComponentName = require('shared/getComponentName');

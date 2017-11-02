@@ -6,7 +6,6 @@
  *
  * @flow
  */
-'use strict';
 
 const ReactFiberTreeReflection = require('shared/ReactFiberTreeReflection');
 const getComponentName = require('shared/getComponentName');

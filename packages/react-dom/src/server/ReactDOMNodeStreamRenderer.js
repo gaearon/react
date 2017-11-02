@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-'use strict';
-
 var Readable = require('stream').Readable;
 
 var ReactPartialRenderer = require('./ReactPartialRenderer');

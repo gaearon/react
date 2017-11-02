@@ -7,8 +7,6 @@
  * @flow
  */
 
-'use strict';
-
 var {
   getCurrentFiberOwnerName,
 } = require('react-reconciler/src/ReactDebugCurrentFiber');

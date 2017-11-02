@@ -7,8 +7,6 @@
  * @flow
  */
 
-'use strict';
-
 export type TypeOfInternalContext = number;
 
 module.exports = {

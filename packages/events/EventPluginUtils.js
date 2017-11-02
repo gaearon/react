@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-'use strict';
-
 var ReactErrorUtils = require('shared/ReactErrorUtils');
 var invariant = require('fbjs/lib/invariant');
 

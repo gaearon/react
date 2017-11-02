@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 const React = require('react');
 let ReactTestRenderer;
 

@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 // Requires
 var React;
 var ReactDOM;

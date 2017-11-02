@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-'use strict';
-
 var SyntheticUIEvent = require('./SyntheticUIEvent');
 var getEventCharCode = require('./getEventCharCode');
 var getEventKey = require('./getEventKey');

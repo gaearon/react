@@ -7,8 +7,6 @@
  * @flow
  */
 
-'use strict';
-
 export type TypeOfSideEffect = number;
 
 module.exports = {

@@ -7,8 +7,6 @@
  * @flow
  */
 
-'use strict';
-
 module.exports = function(
   name: null | string,
   source: any,

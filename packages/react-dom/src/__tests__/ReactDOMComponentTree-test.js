@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 describe('ReactDOMComponentTree', () => {
   var React;
   var ReactDOM;

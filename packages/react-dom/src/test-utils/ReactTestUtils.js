@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-'use strict';
-
 var React = require('react');
 var ReactDOM = require('react-dom');
 var ReactFiberTreeReflection = require('shared/ReactFiberTreeReflection');

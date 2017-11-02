@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 describe('ReactChildren', () => {
   var React;
   var ReactTestUtils;

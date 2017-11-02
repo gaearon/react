@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-'use strict';
-
 var EventPluginHub = require('events/EventPluginHub');
 var EventPluginUtils = require('events/EventPluginUtils');
 

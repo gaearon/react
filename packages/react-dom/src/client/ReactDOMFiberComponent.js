@@ -7,8 +7,6 @@
  * @flow
  */
 
-'use strict';
-
 // TODO: direct imports like some-package/src/* are bad. Fix me.
 var {
   getCurrentFiberOwnerName,

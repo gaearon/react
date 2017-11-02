@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 describe('onlyChild', () => {
   var React;
   var WrapComponent;

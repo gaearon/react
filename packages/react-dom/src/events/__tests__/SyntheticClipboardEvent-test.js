@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 var SyntheticClipboardEvent;
 
 describe('SyntheticClipboardEvent', () => {

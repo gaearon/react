@@ -7,8 +7,6 @@
  * @flow
  */
 
-'use strict';
-
 import type {ReactNodeList} from 'shared/ReactTypes';
 
 require('../shared/checkReact');

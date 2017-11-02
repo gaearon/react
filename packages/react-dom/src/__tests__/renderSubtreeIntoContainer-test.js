@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 var React = require('react');
 var PropTypes = require('prop-types');
 var ReactDOM = require('react-dom');

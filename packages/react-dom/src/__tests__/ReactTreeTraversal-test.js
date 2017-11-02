@@ -7,8 +7,6 @@
  * @emails react-core
  */
 
-'use strict';
-
 var React = require('react');
 // TODO: can we express this test with only public API?
 var ReactDOMComponentTree = require('../client/ReactDOMComponentTree');

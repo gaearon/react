@@ -5,8 +5,6 @@
  * LICENSE file in the root directory of this source tree.
  */
 
-'use strict';
-
 // TODO: Move deepDiffer into react
 
 var deepDiffer = function(one: any, two: any): boolean {
