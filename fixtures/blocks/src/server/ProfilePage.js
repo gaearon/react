@@ -12,9 +12,6 @@ import {matchRoute} from './ServerRouter';
 import ProfileTimeline from './ProfileTimeline';
 import ProfileBio from './ProfileBio';
 
-// TODO: Replace with asset reference.
-import ProfileNav from '../client/ProfileNav';
-
 // TODO: Router component?
 const ProfileRoutes = {
   '/': props => <ProfileTimeline {...props} key="timeline" />,
@@ -27,7 +24,6 @@ export default function ProfilePage(props) {
   return (
     <>
       <h2>{user.name}</h2>
-      <ProfileNav userId={user.id} />
       <Suspense fallback={<h3>Loading...</h3>}>{match}</Suspense>
     </>
   );

@@ -22,24 +22,15 @@ const initialUrl = window.location.pathname;
 const initialState = {
   // TODO: use this for invalidation.
   cache: createCache(),
-  url: initialUrl,
-  pendingUrl: initialUrl,
   root: <App route={initialUrl} />,
 };
 
 function reducer(state, action) {
   switch (action.type) {
-    case 'startNavigation':
-      return {
-        ...state,
-        pendingUrl: action.url,
-      };
-    case 'completeNavigation':
+    case 'navigate':
       // TODO: cancel previous fetch?
       return {
         ...state,
-        url: action.url,
-        pendingUrl: action.url,
         root: action.root,
       };
     default:
@@ -63,7 +54,7 @@ function Router() {
         // TODO: Here, There, and Everywhere.
         // TODO: Instant Transitions, somehow.
         dispatch({
-          type: 'completeNavigation',
+          type: 'navigate',
           root: <App route={url} />,
           url,
         });
@@ -86,11 +77,9 @@ function Router() {
 
   const routeContext = useMemo(
     () => ({
-      pendingUrl: state.pendingUrl,
-      url: state.url,
       navigate,
     }),
-    [state.url, state.pendingUrl, navigate]
+    [navigate]
   );
 
   return (
