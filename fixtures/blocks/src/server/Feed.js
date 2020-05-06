@@ -12,10 +12,5 @@ import PostList from './PostList';
 
 export default function Feed() {
   const posts = fetch('/posts?_expand=user').json();
-  return (
-    <>
-      <h2>Feed</h2>
-      <PostList posts={posts} />
-    </>
-  );
+  return <PostList posts={posts} />;
 }

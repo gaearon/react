@@ -13,8 +13,11 @@ import Feed from './Feed';
 
 export default function FeedPage() {
   return (
-    <Suspense fallback={<PostGlimmer />}>
-      <Feed />
-    </Suspense>
+    <>
+      <h2>Feed</h2>
+      <Suspense fallback={<PostGlimmer />}>
+        <Feed />
+      </Suspense>
+    </>
   );
 }
