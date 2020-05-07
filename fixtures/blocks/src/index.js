@@ -6,8 +6,17 @@
  */
 
 import React from 'react';
+import {Suspense} from 'react';
+import {createCache, CacheProvider} from 'react/unstable-cache';
 import {unstable_createRoot as createRoot} from 'react-dom';
 import './index.css';
-import Router from './Router';
+import Frame from './client/Frame';
 
-createRoot(document.getElementById('root')).render(<Router />);
+const initialCache = createCache();
+createRoot(document.getElementById('root')).render(
+  <Suspense fallback={<h1>Loading...</h1>}>
+    <CacheProvider value={initialCache}>
+      <Frame src="App" params={{route: '/'}} />
+    </CacheProvider>
+  </Suspense>
+);

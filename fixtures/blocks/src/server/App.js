@@ -7,22 +7,24 @@
 /* eslint-disable import/first */
 
 import * as React from 'react';
-import {matchRoute} from './ServerRouter';
-import FeedPage from './FeedPage';
-import ProfilePage from './ProfilePage';
-
-// TODO: Replace with asset reference.
-import Shell from '../client/Shell';
-
-// TODO: Router component?
-const AppRoutes = {
-  '/': props => <FeedPage {...props} key="home" />,
-  '/profile/:userId/*': props => (
-    <ProfilePage {...props} key={`profile-${props.userId}`} />
-  ),
-};
+import ServerRouter from './ServerRouter';
 
 export default function App(props) {
-  const match = matchRoute(props, AppRoutes);
-  return <Shell>{match}</Shell>;
+  return (
+    <ServerRouter
+      preloadedId="home"
+      tabs={[
+        {
+          id: 'home',
+          label: 'Home',
+          to: ['FeedPage', {}],
+        },
+        {
+          id: 'profile',
+          label: 'Profile',
+          to: ['ProfilePage', {userId: 3}],
+        },
+      ]}
+    />
+  );
 }

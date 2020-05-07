@@ -6,17 +6,18 @@
  */
 
 import * as React from 'react';
-import {useRouter} from './RouterContext';
+// import {useRouter} from './RouterContext';
 
 export default function Link({to, children, ...rest}) {
-  const {navigate} = useRouter();
+  // const {navigate} = useRouter();
   return (
     <a
       href={to}
       onClick={e => {
         e.preventDefault();
         window.history.pushState(null, null, to);
-        navigate(to);
+        // TODO
+        // navigate(to);
       }}
       {...rest}>
       {children}

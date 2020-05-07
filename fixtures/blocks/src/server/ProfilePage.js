@@ -8,23 +8,30 @@
 import * as React from 'react';
 import {Suspense} from 'react';
 import {fetch} from 'react-data/fetch';
-import {matchRoute} from './ServerRouter';
-import ProfileTimeline from './ProfileTimeline';
-import ProfileBio from './ProfileBio';
+import ServerRouter from './ServerRouter';
 
-// TODO: Router component?
-const ProfileRoutes = {
-  '/': props => <ProfileTimeline {...props} key="timeline" />,
-  '/bio': props => <ProfileBio {...props} key="bio" />,
-};
-
-export default function ProfilePage(props) {
-  const user = fetch(`/users/${props.userId}`).json();
-  const match = matchRoute(props, ProfileRoutes);
+export default function ProfilePage({userId}) {
+  const user = fetch(`/users/${userId}`).json();
   return (
     <>
       <h2>{user.name}</h2>
-      <Suspense fallback={<h3>Loading...</h3>}>{match}</Suspense>
+      <Suspense fallback={<h3>Loading...</h3>}>
+        <ServerRouter
+          preloadedId="timeline"
+          tabs={[
+            {
+              id: 'timeline',
+              label: 'Timeline',
+              to: ['ProfileTimeline', {userId}],
+            },
+            {
+              id: 'bio',
+              label: 'Bio',
+              to: ['ProfileBio', {userId}],
+            },
+          ]}
+        />
+      </Suspense>
     </>
   );
 }
