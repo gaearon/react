@@ -2868,126 +2868,136 @@ describe('ReactFresh', () => {
     }
   });
 
-  it('remounts a failed root on update', () => {
+  function testCanSwapIncompatibleTypes(V1Type, V2Type) {
     if (__DEV__) {
-      render(() => {
-        function Hello() {
-          return <h1>Hi</h1>;
-        }
-        $RefreshReg$(Hello, 'Hello');
-
-        return Hello;
+      const containerA = document.createElement('div');
+      $RefreshReg$(V1Type, 'Hello');
+      act(() => {
+        ReactDOM.render(<V1Type />, containerA);
       });
-      expect(container.innerHTML).toBe('<h1>Hi</h1>');
+      expect(containerA.innerHTML).toBe('V1');
 
-      // Perform a hot update that fails.
-      // This removes the root.
-      expect(() => {
-        patch(() => {
-          function Hello() {
-            throw new Error('No');
-          }
-          $RefreshReg$(Hello, 'Hello');
-        });
-      }).toThrow('No');
-      expect(container.innerHTML).toBe('');
+      const containerB = document.createElement('div');
+      $RefreshReg$(V2Type, 'Hello');
+      ReactFreshRuntime.performReactRefresh();
+      expect(containerA.innerHTML).toBe('V2');
 
-      // A bad retry
-      expect(() => {
-        patch(() => {
-          function Hello() {
-            throw new Error('Not yet');
-          }
-          $RefreshReg$(Hello, 'Hello');
-        });
-      }).toThrow('Not yet');
-      expect(container.innerHTML).toBe('');
-
-      // Perform a hot update that fixes the error.
-      patch(() => {
-        function Hello() {
-          return <h1>Fixed!</h1>;
-        }
-        $RefreshReg$(Hello, 'Hello');
+      ReactDOM.unmountComponentAtNode(containerA);
+      act(() => {
+        ReactDOM.render(<V2Type />, containerA);
+        ReactDOM.render(<V2Type />, containerB);
       });
-      // This should remount the root.
-      expect(container.innerHTML).toBe('<h1>Fixed!</h1>');
+      expect(containerA.innerHTML).toBe('V2');
+      expect(containerB.innerHTML).toBe('V2');
 
-      // Verify next hot reload doesn't remount anything.
-      const helloNode = container.firstChild;
-      patch(() => {
-        function Hello() {
-          return <h1>Nice.</h1>;
-        }
-        $RefreshReg$(Hello, 'Hello');
+      ReactDOM.unmountComponentAtNode(containerA);
+      ReactDOM.unmountComponentAtNode(containerB);
+      act(() => {
+        ReactDOM.render(<V1Type />, containerA);
+        ReactDOM.render(<V1Type />, containerB);
       });
-      expect(container.firstChild).toBe(helloNode);
-      expect(helloNode.textContent).toBe('Nice.');
+      expect(containerA.innerHTML).toBe('V2');
+      expect(containerB.innerHTML).toBe('V2');
+    }
+  }
 
-      // Break again.
-      expect(() => {
-        patch(() => {
-          function Hello() {
-            throw new Error('Oops');
-          }
-          $RefreshReg$(Hello, 'Hello');
-        });
-      }).toThrow('Oops');
-      expect(container.innerHTML).toBe('');
+  it('does not get confused when changing incompatible types (fn -> class)', () => {
+    function V1() {
+      return 'V1';
+    }
+    class V2 extends React.Component {
+      render() {
+        return 'V2';
+      }
+    };
+    if (__DEV__) {
+      testCanSwapIncompatibleTypes(V1, V2)
+    }
+  });
 
-      // Perform a hot update that fixes the error.
-      patch(() => {
-        function Hello() {
-          return <h1>At last.</h1>;
-        }
-        $RefreshReg$(Hello, 'Hello');
-      });
-      // This should remount the root.
-      expect(container.innerHTML).toBe('<h1>At last.</h1>');
+  it('does not get confused when changing incompatible types (class -> fn)', () => {
+    class V1 extends React.Component {
+      render() {
+        return 'V1';
+      }
+    };
+    function V2() {
+      return 'V2';
+    }
+    if (__DEV__) {
+      testCanSwapIncompatibleTypes(V1, V2)
+    }
+  });
 
-      // Check we don't attempt to reverse an intentional unmount.
-      ReactDOM.unmountComponentAtNode(container);
-      expect(container.innerHTML).toBe('');
-      patch(() => {
-        function Hello() {
-          return <h1>Never mind me!</h1>;
-        }
-        $RefreshReg$(Hello, 'Hello');
-      });
-      expect(container.innerHTML).toBe('');
+  it('does not get confused when changing incompatible types (fn -> forwardRef)', () => {
+    function V1() {
+      return 'V1';
+    };
+    let V2 = React.forwardRef(() => {
+      return 'V2';
+    });
+    if (__DEV__) {
+      testCanSwapIncompatibleTypes(V1, V2)
+    }
+  });
 
-      // Mount a new container.
-      render(() => {
-        function Hello() {
-          return <h1>Hi</h1>;
-        }
-        $RefreshReg$(Hello, 'Hello');
+  it('does not get confused when changing incompatible types (forwardRef -> fn)', () => {
+    let V1 = React.forwardRef(() => {
+      return 'V1';
+    });
+    function V2() {
+      return 'V2';
+    };
+    if (__DEV__) {
+      testCanSwapIncompatibleTypes(V1, V2)
+    }
+  });
 
-        return Hello;
-      });
-      expect(container.innerHTML).toBe('<h1>Hi</h1>');
+  it('does not get confused when changing incompatible types (fn -> memo)', () => {
+    function V1() {
+      return 'V1';
+    };
+    let V2 = React.memo(() => {
+      return 'V2';
+    });
+    if (__DEV__) {
+      testCanSwapIncompatibleTypes(V1, V2)
+    }
+  });
 
-      // Break again.
-      expect(() => {
-        patch(() => {
-          function Hello() {
-            throw new Error('Oops');
-          }
-          $RefreshReg$(Hello, 'Hello');
-        });
-      }).toThrow('Oops');
-      expect(container.innerHTML).toBe('');
+  fit('does not get confused when changing incompatible types (memo -> fn)', () => {
+    let V1 = React.memo(() => {
+      return 'V1';
+    });
+    function V2() {
+      return 'V2';
+    };
+    if (__DEV__) {
+      testCanSwapIncompatibleTypes(V1, V2)
+    }
+  });
 
-      // Check we don't attempt to reverse an intentional unmount, even after an error.
-      ReactDOM.unmountComponentAtNode(container);
-      expect(container.innerHTML).toBe('');
-      patch(() => {
-        function Hello() {
-          return <h1>Never mind me!</h1>;
-        }
-        $RefreshReg$(Hello, 'Hello');
-      });
-      expect(container.innerHTML).toBe('');
+  it('does not get confused when changing incompatible types (memo -> forwardRef)', () => {
+    let V1 = React.memo(() => {
+      return 'V1';
+    });
+    let V2 = React.forwardRef(() => {
+      return 'V2';
+    });
+    if (__DEV__) {
+      testCanSwapIncompatibleTypes(V1, V2)
+    }
+  });
+
+  it('does not get confused when changing incompatible types (forwardRef -> memo)', () => {
+    let V1 = React.forwardRef(() => {
+      return 'V1';
+    });
+    let V2 = React.memo(() => {
+      return 'V2';
+    });
+    if (__DEV__) {
+      testCanSwapIncompatibleTypes(V1, V2)
     }
   });
 

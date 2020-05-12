@@ -272,15 +272,15 @@ function scheduleFibersWithFamiliesRecursively(
   if (__DEV__) {
     const {alternate, child, sibling, tag, type} = fiber;
 
-    let candidateType = null;
+    let candidateTypes = null;
     switch (tag) {
       case FunctionComponent:
       case SimpleMemoComponent:
       case ClassComponent:
-        candidateType = type;
+        candidateTypes = [type];
         break;
       case ForwardRef:
-        candidateType = type.render;
+        candidateTypes = [type, type.render];
         break;
       default:
         break;
@@ -292,19 +292,21 @@ function scheduleFibersWithFamiliesRecursively(
 
     let needsRender = false;
     let needsRemount = false;
-    if (candidateType !== null) {
-      const family = resolveFamily(candidateType);
-      if (family !== undefined) {
-        if (staleFamilies.has(family)) {
-          needsRemount = true;
-        } else if (updatedFamilies.has(family)) {
-          if (tag === ClassComponent) {
+    if (candidateTypes !== null) {
+      candidateTypes.forEach(candidateType => {
+        const family = resolveFamily(candidateType);
+        if (family !== undefined) {
+          if (staleFamilies.has(family)) {
             needsRemount = true;
-          } else {
-            needsRender = true;
+          } else if (updatedFamilies.has(family)) {
+            if (tag === ClassComponent) {
+              needsRemount = true;
+            } else {
+              needsRender = true;
+            }
           }
         }
-      }
+      })
     }
     if (failedBoundaries !== null) {
       if (

@@ -457,18 +457,16 @@ export function createFiberFromTypeAndProps(
   expirationTime: ExpirationTime,
 ): Fiber {
   let fiberTag = IndeterminateComponent;
+  if (__DEV__) {
+    if (typeof type !== 'string') {
+      type = resolveFunctionForHotReloading(type);
+    }
+  }
   // The resolved type is set if we know what the final type will be. I.e. it's not lazy.
   let resolvedType = type;
   if (typeof type === 'function') {
     if (shouldConstruct(type)) {
       fiberTag = ClassComponent;
-      if (__DEV__) {
-        resolvedType = resolveClassForHotReloading(resolvedType);
-      }
-    } else {
-      if (__DEV__) {
-        resolvedType = resolveFunctionForHotReloading(resolvedType);
-      }
     }
   } else if (typeof type === 'string') {
     fiberTag = HostComponent;

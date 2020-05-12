@@ -151,6 +151,9 @@ function canPreserveStateBetween(prevType, nextType) {
   if (isReactClass(prevType) || isReactClass(nextType)) {
     return false;
   }
+  if (prevType.$$typeof !== nextType.$$typeof) {
+    return false;
+  }
   if (haveEqualSignatures(prevType, nextType)) {
     return true;
   }
