@@ -133,7 +133,7 @@ export default class ReactFlightWebpackPlugin {
           new NullDependency.Template(),
         );
 
-        compilation.hooks.buildModule.tap(PLUGIN_NAME, module => {
+        compilation.hooks.succeedModule.tap(PLUGIN_NAME, module => {
           // We need to add all client references as dependency of something in the graph so
           // Webpack knows which entries need to know about the relevant chunks and include the
           // map in their runtime. The things that actually resolves the dependency is the Flight
@@ -160,6 +160,7 @@ export default class ReactFlightWebpackPlugin {
               );
               block.addDependency(dep);
               module.addBlock(block);
+              module.buildInfo.contextDependencies.add(compiler.context);
             }
           }
         });
