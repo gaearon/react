@@ -34,8 +34,10 @@ import {
   disableSchedulerTimeoutInWorkLoop,
   enableDoubleInvokingEffects,
   skipUnmountedBoundaries,
+  enableNativeEventPriorityInference,
 } from 'shared/ReactFeatureFlags';
 import ReactSharedInternals from 'shared/ReactSharedInternals';
+import {DefaultEvent, DiscreteEvent, ContinuousEvent} from 'shared/ReactTypes';
 import invariant from 'shared/invariant';
 
 import {
@@ -93,6 +95,7 @@ import {
   afterActiveInstanceBlur,
   clearContainer,
   scheduleMicrotask,
+  getCurrentEventPriority,
 } from './ReactFiberHostConfig';
 
 import {
@@ -138,6 +141,7 @@ import {
   SyncLanePriority,
   SyncBatchedLanePriority,
   InputDiscreteLanePriority,
+  InputContinuousLanePriority,
   DefaultLanePriority,
   NoLanes,
   NoLane,
@@ -465,11 +469,38 @@ export function requestUpdateLane(fiber: Fiber): Lane {
     const currentLanePriority = getCurrentUpdateLanePriority();
     lane = findUpdateLane(currentLanePriority, currentEventWipLanes);
   } else {
-    const schedulerLanePriority = schedulerPriorityToLanePriority(
-      schedulerPriority,
-    );
-
-    lane = findUpdateLane(schedulerLanePriority, currentEventWipLanes);
+    let eventPriority = DefaultEvent;
+    if (enableNativeEventPriorityInference) {
+      eventPriority = getCurrentEventPriority();
+    }
+    switch (eventPriority) {
+      case DiscreteEvent: {
+        lane = findUpdateLane(InputDiscreteLanePriority, currentEventWipLanes);
+        break;
+      }
+      case ContinuousEvent: {
+        lane = findUpdateLane(
+          InputContinuousLanePriority,
+          currentEventWipLanes,
+        );
+        break;
+      }
+      default: {
+        if (__DEV__) {
+          console.error(
+            'Invalid event priority returned from getCurrentEventPriority: %s.',
+            eventPriority,
+          );
+        }
+      }
+      // eslint-disable-next-line no-fallthrough
+      case DefaultEvent: {
+        const schedulerLanePriority = schedulerPriorityToLanePriority(
+          schedulerPriority,
+        );
+        lane = findUpdateLane(schedulerLanePriority, currentEventWipLanes);
+      }
+    }
   }
 
   return lane;
