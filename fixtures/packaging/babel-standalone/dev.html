@@ -5,10 +5,50 @@
     <script src="https://unpkg.com/babel-standalone@6/babel.js"></script>
     <div id="container"></div>
     <script type="text/babel">
-      ReactDOM.render(
-        <h1>Hello World!</h1>,
+      function Expensive({ count, n }) {
+        if (n === 0) {
+          return count
+        }
+        let now = performance.now()
+        while (performance.now() - now < 10) {
+          // noop
+        }
+        return (
+          <div>
+            <Expensive n={n - 1} count={count} />
+            <Expensive n={n - 1} count={count} />
+          </div>
+        )
+      }
+
+      function App() {
+        let [x, setX] = React.useState(0);
+        return (
+          <div>
+            <button onClick={() => {
+              setX(x => x + 1);
+            }}>++ (React)</button>
+            <button ref={(node) => {
+              if (node) {
+                node.onclick = () => setX(x => x + 1);
+              }
+            }}>++ (native)</button>
+            <Expensive n={5} count={x} />
+          </div>
+        );
+      }
+
+      ReactDOM.unstable_createRoot(
         document.getElementById('container')
+      ).render(
+        <App />
       );
+
+      // ReactDOM.render(
+      //   <App />,
+      //   document.getElementById('container')
+      // );
+
     </script>
   </body>
 </html>
