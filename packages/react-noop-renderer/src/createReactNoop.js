@@ -16,11 +16,12 @@
 
 import type {Fiber} from 'react-reconciler/src/ReactInternalTypes';
 import type {UpdateQueue} from 'react-reconciler/src/ReactUpdateQueue';
-import type {ReactNodeList, Thenable} from 'shared/ReactTypes';
+import type {ReactNodeList, Thenable, EventPriority} from 'shared/ReactTypes';
 import type {RootTag} from 'react-reconciler/src/ReactRootTags';
 
 import * as Scheduler from 'scheduler/unstable_mock';
 import {REACT_FRAGMENT_TYPE, REACT_ELEMENT_TYPE} from 'shared/ReactSymbols';
+import {DefaultEvent} from 'shared/ReactTypes';
 import {
   ConcurrentRoot,
   BlockingRoot,
@@ -390,6 +391,10 @@ function createReactNoop(reconciler: Function, useMutation: boolean) {
     },
 
     resetAfterCommit(): void {},
+
+    getCurrentEventPriority(): EventPriority {
+      return DefaultEvent;
+    },
 
     now: Scheduler.unstable_now,
 

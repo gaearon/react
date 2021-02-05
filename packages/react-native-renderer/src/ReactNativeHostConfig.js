@@ -8,6 +8,7 @@
  */
 
 import type {TouchedViewDataAtPoint} from './ReactNativeTypes';
+import type {EventPriority} from 'shared/ReactTypes';
 
 import invariant from 'shared/invariant';
 
@@ -25,6 +26,7 @@ import {
   updateFiberProps,
 } from './ReactNativeComponentTree';
 import ReactNativeFiberHostComponent from './ReactNativeFiberHostComponent';
+import {DefaultEvent} from 'shared/ReactTypes';
 
 const {get: getViewConfigForType} = ReactNativeViewConfigRegistry;
 
@@ -239,6 +241,10 @@ export function prepareUpdate(
 
 export function resetAfterCommit(containerInfo: Container): void {
   // Noop
+}
+
+export function getCurrentEventPriority(): EventPriority {
+  return DefaultEvent;
 }
 
 export const isPrimaryRenderer = true;

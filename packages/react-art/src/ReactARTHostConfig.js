@@ -8,6 +8,7 @@
 import Transform from 'art/core/transform';
 import Mode from 'art/modes/current';
 import invariant from 'shared/invariant';
+import {DefaultEvent} from 'shared/ReactTypes';
 
 import {TYPES, EVENT_TYPES, childrenAsString} from './ReactARTInternals';
 
@@ -325,6 +326,10 @@ export function getRootHostContext() {
 
 export function getChildHostContext() {
   return NO_CONTEXT;
+}
+
+export function getCurrentEventPriority() {
+  return DefaultEvent;
 }
 
 export const scheduleTimeout = setTimeout;

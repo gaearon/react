@@ -15,7 +15,7 @@ import type {
   ObserveVisibleRectsCallback,
 } from 'react-reconciler/src/ReactTestSelectors';
 import type {RootType} from './ReactDOMRoot';
-import type {ReactScopeInstance} from 'shared/ReactTypes';
+import type {ReactScopeInstance, EventPriority} from 'shared/ReactTypes';
 
 import {
   precacheFiberNode,
@@ -59,6 +59,7 @@ import {
 import dangerousStyleValue from '../shared/dangerousStyleValue';
 
 import {REACT_OPAQUE_ID_TYPE} from 'shared/ReactSymbols';
+import {getEventPriorityForPluginSystem} from '../events/DOMEventProperties';
 import {retryIfBlockedOn} from '../events/ReactDOMEventReplaying';
 
 import {
@@ -68,6 +69,7 @@ import {
 } from 'shared/ReactFeatureFlags';
 import {HostComponent, HostText} from 'react-reconciler/src/ReactWorkTags';
 import {listenToAllSupportedEvents} from '../events/DOMPluginEventSystem';
+import {DefaultEvent} from 'shared/ReactTypes';
 
 export type Type = string;
 export type Props = {
@@ -370,6 +372,15 @@ export function createTextInstance(
   const textNode: TextInstance = createTextNode(text, rootContainerInstance);
   precacheFiberNode(internalInstanceHandle, textNode);
   return textNode;
+}
+
+export function getCurrentEventPriority(): EventPriority {
+  const currentEvent = window.event;
+  if (currentEvent === undefined) {
+    return DefaultEvent;
+  }
+  // TODO: Is this fast enough? It reads from a Map.
+  return getEventPriorityForPluginSystem(currentEvent.type);
 }
 
 export const isPrimaryRenderer = true;

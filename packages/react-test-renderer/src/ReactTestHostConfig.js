@@ -7,7 +7,10 @@
  * @flow
  */
 
+import type {EventPriority} from 'shared/ReactTypes';
+
 import {REACT_OPAQUE_ID_TYPE} from 'shared/ReactSymbols';
+import {DefaultEvent} from 'shared/ReactTypes';
 
 export type Type = string;
 export type Props = Object;
@@ -211,6 +214,10 @@ export function createTextInstance(
     isHidden: false,
     tag: 'TEXT',
   };
+}
+
+export function getCurrentEventPriority(): EventPriority {
+  return DefaultEvent;
 }
 
 export const isPrimaryRenderer = false;

@@ -207,6 +207,16 @@ This is a property (not a function) that should be set to something that can nev
 
 You can proxy this to `queueMicrotask` or its equivalent in your environment.
 
+#### `getCurrentEventPriority(fn)`
+
+If there is no ongoing event (like `window.event` in the DOM), return `0`.
+
+Else, return one of the numbers depending on the ongoing event type:
+
+- For events originating from user input where each event is intentional (e.g. clicks), return `2`.
+- For events originating from continuous user input (e.g. mouse move), return `1`.
+- For any other events, return `0`.
+
 #### `isPrimaryRenderer`
 
 This is a property (not a function) that should be set to `true` if your renderer is the main one on the page. For example, if you're writing a renderer for the Terminal, it makes sense to set it to `true`, but if your renderer is used *on top of* React DOM or some other existing renderer, set it to `false`.
