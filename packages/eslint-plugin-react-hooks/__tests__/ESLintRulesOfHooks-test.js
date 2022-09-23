@@ -1090,7 +1090,22 @@ if (__EXPERIMENTAL__) {
         return <Child onClick={() => onClick()} />
       }
     `,
-      errors: [{...useEventError('onClick'), line: 4}],
+      errors: [{...useEventError('onClick'), line: 7}],
+    },
+    {
+      code: `
+      // The should error because it's passed down as JSX
+      function MyComponent({theme}) {
+        const onClick = useEvent(() => {
+          showNotification(theme)
+        });
+        useEffect(() => {
+          onClick();
+        });
+        return <Child onClick={onClick} />
+      }
+    `,
+      errors: [{...useEventError('onClick'), line: 10}],
     },
     {
       code: `
@@ -1110,14 +1125,11 @@ if (__EXPERIMENTAL__) {
         const onClick = useEvent(() => {
           showNotification(theme);
         });
-        let foo;
-        useEffect(() => {
-          foo = onClick;
-        });
+        let foo = onClick;
         return <Bar onClick={foo} />
       }
     `,
-      errors: [useEventError('onClick')],
+      errors: [{...useEventError('onClick'), line: 7}],
     },
   ];
 }

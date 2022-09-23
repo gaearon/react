@@ -120,38 +120,32 @@ export default {
     let lastEffect = null;
     const codePathReactHooksMapStack = [];
     const codePathSegmentStack = [];
-    const useEventViolations = new Set();
+    const eventFnIdentifiers = new WeakSet();
 
     // For a given AST node, iterate through the top level statements and add all useEvent
     // definitions. We can do this in non-Program nodes because we can rely on the assumption that
     // useEvent functions can only be declared within a component or hook at its top level.
-    function addAllUseEventViolations(node) {
-      if (node.body.type !== 'BlockStatement') return;
-      for (const statement of node.body.body) {
-        if (statement.type !== 'VariableDeclaration') continue;
-        for (const declaration of statement.declarations) {
-          if (
-            declaration.type === 'VariableDeclarator' &&
-            declaration.init &&
-            declaration.init.type === 'CallExpression' &&
-            declaration.init.callee &&
-            isUseEventIdentifier(declaration.init.callee)
-          ) {
-            useEventViolations.add(declaration.id);
-          }
-        }
-      }
-    }
+    function addAllUseEventDefinitions(node) {
+      // const scopeManager = context.getSourceCode().scopeManager;
+      // const scope = scopeManager.acquire(node);
+      const scope = context.getScope();
 
-    // Resolve a useEvent violation, ie the useEvent created function was called.
-    function resolveUseEventViolation(scope, ident) {
-      if (scope.references == null || useEventViolations.size === 0) return;
-      for (const ref of scope.references) {
-        if (ref.resolved == null) continue;
-        const [useEventFunctionIdentifier] = ref.resolved.identifiers;
-        if (ident.name === useEventFunctionIdentifier.name) {
-          useEventViolations.delete(useEventFunctionIdentifier);
-          break;
+      for (const reference of scope.references) {
+        const identifier = reference.identifier;
+        const parent = identifier.parent;
+        if (
+          parent.type === 'VariableDeclarator' &&
+          parent.init &&
+          parent.init.type === 'CallExpression' &&
+          parent.init.callee &&
+          isUseEventIdentifier(parent.init.callee)
+        ) {
+          const references = reference.resolved.references;
+          for (const ref of references) {
+            if (ref !== reference) {
+              eventFnIdentifiers.add(ref.identifier);
+            }
+          }
         }
       }
     }
@@ -568,9 +562,6 @@ export default {
         }
 
         const scope = context.getScope();
-        // useEvent: Resolve a function created with useEvent that is invoked locally at least once.
-        // OK - onClick();
-        resolveUseEventViolation(scope, node.callee);
 
         // useEvent: useEvent functions can be passed by reference within useEffect as well as in
         // another useEvent
@@ -587,9 +578,19 @@ export default {
       },
 
       Identifier(node) {
-        // OK - useEffect(() => { setInterval(onClick, ...) }, []);
-        if (lastEffect != null && node.parent.type === 'CallExpression') {
-          resolveUseEventViolation(context.getScope(), node);
+        if (
+          lastEffect == null &&
+          eventFnIdentifiers.has(node) &&
+          node.parent.type !== 'CallExpression'
+        ) {
+          context.report({
+            node,
+            message:
+              `\`${context.getSource(
+                node,
+              )}\` is a function created with React Hook "useEvent", and can only be called from ` +
+              'the same component. They cannot be assigned to variables or passed down.',
+          });
         }
       },
 
@@ -602,27 +603,14 @@ export default {
       FunctionDeclaration(node) {
         // function MyComponent() { const onClick = useEvent(...) }
         if (isInsideComponentOrHook(node)) {
-          addAllUseEventViolations(node);
+          addAllUseEventDefinitions(node);
         }
       },
 
       ArrowFunctionExpression(node) {
         // const MyComponent = () => { const onClick = useEvent(...) }
         if (isInsideComponentOrHook(node)) {
-          addAllUseEventViolations(node);
-        }
-      },
-
-      'Program:exit'(_node) {
-        for (const node of useEventViolations.values()) {
-          context.report({
-            node,
-            message:
-              `\`${context.getSource(
-                node,
-              )}\` is a function created with React Hook "useEvent", and can only be called from ` +
-              'the same component. They cannot be assigned to variables or passed down.',
-          });
+          addAllUseEventDefinitions(node);
         }
       },
     };
