@@ -1497,6 +1497,40 @@ function createLazyChunkWrapper<T>(
   return lazyType;
 }
 
+type PackedChunkItemReference<T> = {
+  _chunk: SomeChunk<Array<T>>,
+  _index: number,
+};
+
+function readPackedChunkItem<T>(reference: PackedChunkItemReference<T>): T {
+  // Suspends on the packed row like readChunk would, then reads one item.
+  const items = readChunk(reference._chunk);
+  return items[reference._index];
+}
+
+function createLazyPackedItemWrapper<T>(
+  chunk: SomeChunk<Array<T>>,
+  index: number,
+): LazyComponent<T, PackedChunkItemReference<T>> {
+  // A reference to a single deferred sibling inside a packed row. The parent
+  // initializes immediately and each item suspends individually, exactly like
+  // a Lazy reference to its own row would.
+  const lazyType: LazyComponent<T, PackedChunkItemReference<T>> = {
+    $$typeof: REACT_LAZY_TYPE,
+    _payload: {_chunk: chunk, _index: index},
+    _init: readPackedChunkItem,
+  };
+  if (__DEV__) {
+    // Forward the live array of the whole packed row. More precise
+    // attribution would require per-item debug info rows which is what
+    // packing avoids.
+    lazyType._debugInfo = chunk._debugInfo;
+    // Initialize a store for key validation by the JSX runtime.
+    lazyType._store = {validated: 0};
+  }
+  return lazyType;
+}
+
 function getChunk(response: Response, id: number): SomeChunk<any> {
   const chunks = response._chunks;
   let chunk = chunks.get(id);
@@ -2433,7 +2467,8 @@ function parseModelString(
       }
       case 'L': {
         // Lazy node
-        const id = parseInt(value.slice(2), 16);
+        const ref = value.slice(2);
+        const id = parseInt(ref, 16);
         const chunk = getChunk(response, id);
         if (enableProfilerTimer && enableComponentPerformanceTrack) {
           if (
@@ -2442,6 +2477,12 @@ function parseModelString(
           ) {
             initializingChunk._children.push(chunk);
           }
+        }
+        const separatorIdx = ref.indexOf(':');
+        if (separatorIdx > -1) {
+          // A reference to one item inside a packed row of deferred siblings.
+          const index = parseInt(ref.slice(separatorIdx + 1), 10);
+          return createLazyPackedItemWrapper(chunk, index);
         }
         // We create a React.lazy wrapper around any lazy values.
         // When passed into React, we'll know how to suspend on this.

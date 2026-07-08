@@ -2212,12 +2212,64 @@ let canEmitDebugInfo: boolean = false;
 let serializedSize = 0;
 const MAX_ROW_SIZE = 3200;
 
+// How many deferred siblings can share one packed row. Once a row crosses
+// MAX_ROW_SIZE every further element in it is deferred, which on flat pages
+// used to mean one tiny row per sibling. Instead siblings are packed into
+// shared rows and referenced individually by index, so this bounds how much
+// content reveals together. At typical small element sizes this keeps packed
+// rows near MAX_ROW_SIZE; larger elements still defer their own children
+// through the regular size check while they serialize inside the packed row.
+const PACKED_SIBLINGS_LIMIT = 64;
+
+// The task currently accumulating deferred siblings, if any. Only valid
+// while its creating task is rendering; retryTask saves and restores it.
+let currentPackedTask: null | Task = null;
+
+// Marks a task model as a packed row of deferred siblings. Never serialized:
+// retryTask unwraps it and renders the items as a plain array.
+const PACKED_ITEMS_MARKER: symbol = Symbol();
+
+type PackedItems = {
+  marker: symbol,
+  items: Array<ReactClientValue>,
+};
+
+function isPackedItemsModel(model: ReactClientValue): boolean {
+  return (
+    typeof model === 'object' &&
+    model !== null &&
+    (model as any).marker === PACKED_ITEMS_MARKER
+  );
+}
+
 function deferTask(request: Request, task: Task): ReactJSONValue {
   // Like outlineTask but instead the item is scheduled to be serialized
-  // after its parent in the stream.
+  // after its parent in the stream. Deferred siblings that share the same
+  // serialization context are packed into a shared row and referenced by
+  // index to avoid emitting one row per sibling.
+  const packedTask = currentPackedTask;
+  if (
+    packedTask !== null &&
+    packedTask.keyPath === task.keyPath &&
+    packedTask.implicitSlot === task.implicitSlot &&
+    packedTask.formatContext === task.formatContext
+  ) {
+    const packedItems: PackedItems = packedTask.model as any;
+    const items = packedItems.items;
+    if (items.length < PACKED_SIBLINGS_LIMIT) {
+      const index = items.push(task.model) - 1;
+      registerPackedItem(request, task, packedTask.id, index);
+      return serializeLazyPackedItemID(packedTask.id, index);
+    }
+    // This packed row is full. Start a new one.
+  }
+  const packedItems: PackedItems = {
+    marker: PACKED_ITEMS_MARKER,
+    items: [task.model], // the currently rendering element
+  };
   const newTask = createTask(
     request,
-    task.model, // the currently rendering element
+    packedItems as any,
     task.keyPath, // unlike outlineModel this one carries along context
     task.implicitSlot,
     task.formatContext,
@@ -2230,9 +2282,34 @@ function deferTask(request: Request, task: Task): ReactJSONValue {
     __DEV__ ? task.debugStack : null,
     __DEV__ ? task.debugTask : null,
   );
+  currentPackedTask = newTask;
 
+  registerPackedItem(request, task, newTask.id, 0);
   pingTask(request, newTask);
-  return serializeLazyID(newTask.id);
+  return serializeLazyPackedItemID(newTask.id, 0);
+}
+
+function registerPackedItem(
+  request: Request,
+  task: Task,
+  packedId: number,
+  index: number,
+): void {
+  // The element may have been registered for dedupe at its original position
+  // just before it was deferred, but that slot now holds a reference to the
+  // packed item. Point the canonical reference at the packed row instead so
+  // that other occurrences resolve directly through the packed row's array
+  // without going through the Lazy wrapper. This mirrors the registration
+  // rule in renderModelDestructive: only context-free values are reusable.
+  if (task.keyPath === null && !task.implicitSlot) {
+    const model = task.model;
+    if (typeof model === 'object' && model !== null) {
+      request.writtenObjects.set(
+        model as any,
+        serializeByValueID(packedId) + ':' + index,
+      );
+    }
+  }
 }
 
 function outlineTask(request: Request, task: Task): ReactJSONValue {
@@ -2993,6 +3070,12 @@ function serializeByValueID(id: number): string {
 
 function serializeLazyID(id: number): string {
   return '$L' + id.toString(16);
+}
+
+function serializeLazyPackedItemID(id: number, index: number): string {
+  // The index is decimal, unlike row ids, because it's also used as a
+  // property path segment which the client applies verbatim as an array key.
+  return '$L' + id.toString(16) + ':' + index;
 }
 
 function serializePromiseID(id: number): string {
@@ -5970,6 +6053,10 @@ function retryTask(request: Request, task: Task): void {
 
   // We stash the outer parent size so we can restore it when we exit.
   const parentSerializedSize = serializedSize;
+  // Deferred siblings only pack into rows created while the same task is
+  // rendering, so each task gets a fresh packing scope.
+  const prevPackedTask = currentPackedTask;
+  currentPackedTask = null;
   // We don't reset the serialized size counter from reentry because that indicates that we
   // are outlining a model and we actually want to include that size into the parent since
   // it will still block the parent row. It only restores to zero at the top of the stack.
@@ -5982,6 +6069,64 @@ function retryTask(request: Request, task: Task): void {
     if (__DEV__) {
       // Track that we can emit debug info for the current task.
       canEmitDebugInfo = true;
+    }
+
+    if (isPackedItemsModel(task.model)) {
+      // A packed row of deferred siblings. Render each item under the
+      // captured context and assemble the row manually: the items were
+      // deferred from different parents conceptually, so the synthetic array
+      // must not get fragment key semantics, and the references into it are
+      // by index so the row has to be exactly this array.
+      const items: Array<ReactClientValue> = (task.model as any).items;
+      const resolved: Array<ReactJSONValue> = [];
+      for (let i = 0; i < items.length; i++) {
+        // Each item gets a fresh size budget, like it would have gotten in
+        // its own row. Sharing the budget across the row would shatter the
+        // items' content into further deferred rows and make items bounce
+        // between packed rows; the row's total size is bounded by the item
+        // count cap instead, and items with large subtrees still defer their
+        // own children.
+        serializedSize = 0;
+        // Each item is the root of its own slot: its dedupe registration
+        // points into this row, so it must render here rather than dedupe
+        // against itself.
+        modelRoot = items[i];
+        // resolveModel recovers per item: a suspended or errored item
+        // becomes a reference in its slot, like it would in its own row.
+        resolved[i] = resolveModel(
+          request,
+          task,
+          items as any,
+          '' + i,
+          items[i],
+        );
+      }
+      modelRoot = null;
+
+      if (__DEV__) {
+        canEmitDebugInfo = false;
+        const currentEnv = (0, request.environmentName)();
+        if (currentEnv !== task.environmentName) {
+          request.pendingChunks++;
+          emitDebugChunk(request, task.id, {env: currentEnv});
+        }
+      }
+      if (
+        enableProfilerTimer &&
+        (enableComponentPerformanceTrack || enableAsyncDebugInfo)
+      ) {
+        if (task.timed) {
+          markOperationEndTime(request, task, performance.now());
+        }
+      }
+
+      task.keyPath = null;
+      task.implicitSlot = false;
+      emitModelChunk(request, task.id, resolved);
+      task.status = COMPLETED;
+      request.abortableTasks.delete(task);
+      callOnAllReadyIfReady(request);
+      return;
     }
 
     // We call the destructive form that mutates this task. That way if something
@@ -6088,6 +6233,7 @@ function retryTask(request: Request, task: Task): void {
       canEmitDebugInfo = prevCanEmitDebugInfo;
     }
     serializedSize = parentSerializedSize;
+    currentPackedTask = prevPackedTask;
   }
 }
 
@@ -6101,10 +6247,13 @@ function tryStreamTask(request: Request, task: Task): void {
     canEmitDebugInfo = false;
   }
   const parentSerializedSize = serializedSize;
+  const prevPackedTask = currentPackedTask;
+  currentPackedTask = null;
   try {
     emitChunk(request, task, task.model);
   } finally {
     serializedSize = parentSerializedSize;
+    currentPackedTask = prevPackedTask;
     if (__DEV__) {
       canEmitDebugInfo = prevCanEmitDebugInfo;
     }
