@@ -3279,8 +3279,8 @@ function drainDeliveries(request: Request): void {
       }
       try {
         consumer.row(
-          (deliveries[i] as any),
-          (deliveries[i + 1] as any),
+          deliveries[i] as any,
+          deliveries[i + 1] as any,
           deliveries[i + 2],
         );
       } catch (x) {
