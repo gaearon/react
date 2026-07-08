@@ -129,6 +129,7 @@ export function preinitScriptForSSR(
   nonce: ?string,
   crossOrigin: ?string,
 ) {
+
   ReactDOMSharedInternals.d /* ReactDOMCurrentDispatcher */
     .X(/* preinitScript */ href, {
       crossOrigin: getCrossOriginString(crossOrigin),
