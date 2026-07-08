@@ -3028,17 +3028,39 @@ function resolveModel(
     return rendered;
   }
 
+  // Copy-on-write: plain data resolves to itself, and cloning every object
+  // and array into the resolved tree would make the walk the request's
+  // largest allocation source. We only allocate a copy once a child actually
+  // resolves to something different (an element, a reference, an escaped
+  // string, ...) and return the original otherwise. Note that this means a
+  // row can hold the caller's own objects until it's flushed and, through a
+  // model channel, share them with a same-process consumer; both only ever
+  // read them.
+
   if (isArray(rendered)) {
-    const resolved: Array<ReactJSONValue> = [];
+    let resolved: Array<ReactJSONValue> | null = null;
     for (let i = 0; i < rendered.length; i++) {
-      resolved[i] = resolveModel(request, task, rendered, '' + i, rendered[i]);
+      const resolvedValue = resolveModel(
+        request,
+        task,
+        rendered,
+        '' + i,
+        rendered[i],
+      );
+      if (resolved !== null) {
+        resolved.push(resolvedValue);
+      } else if (resolvedValue !== rendered[i]) {
+        // This child diverged. Copy the identical prefix and switch to
+        // writing into the copy.
+        resolved = rendered.slice(0, i);
+        resolved.push(resolvedValue);
+      }
     }
-    return resolved;
+    return resolved === null ? rendered : resolved;
   }
 
-  // Use `{}` for fast properties; `__proto__` is handled below because simple
-  // assignment would hit Object.prototype's setter instead of creating a key.
-  const resolved: {[key: string]: ReactJSONValue} = {} as any;
+  let resolved: {[key: string]: ReactJSONValue} | null = null;
+  let keyCount = 0;
   for (const key in rendered) {
     if (hasOwnProperty.call(rendered, key)) {
       const resolvedValue = resolveModel(
@@ -3048,8 +3070,42 @@ function resolveModel(
         key,
         rendered[key],
       );
-      if (key === __PROTO__) {
-        // Match JSON's ordinary data-property semantics for this legacy key.
+      if (
+        resolved === null &&
+        resolvedValue === rendered[key] &&
+        resolvedValue !== undefined &&
+        key !== __PROTO__
+      ) {
+        // An own __proto__ key always forces a copy: the copy carries it as
+        // an ordinary data property to match JSON semantics, and consumers
+        // that receive rows in object form drop it in place, which must not
+        // reach the original. An undefined value also forces a copy so that
+        // we can omit the key the way JSON.stringify would.
+        keyCount++;
+        continue;
+      }
+      if (resolved === null) {
+        // This child diverged. Copy the identical prefix into a fresh `{}`
+        // (for fast properties) and switch to writing into the copy.
+        resolved = {} as any;
+        let prefixIndex = 0;
+        for (const prefixKey in rendered) {
+          if (prefixIndex >= keyCount) {
+            break;
+          }
+          if (hasOwnProperty.call(rendered, prefixKey)) {
+            prefixIndex++;
+            (resolved as any)[prefixKey] = rendered[prefixKey];
+          }
+        }
+      }
+      if (resolvedValue === undefined) {
+        // Omit the key entirely, like JSON.stringify would. This keeps the
+        // object form of the row consistent with its wire form.
+      } else if (key === __PROTO__) {
+        // Match JSON's ordinary data-property semantics for this legacy key;
+        // simple assignment would hit Object.prototype's setter instead of
+        // creating a key.
         Object.defineProperty(resolved, key, {
           value: resolvedValue,
           enumerable: true,
@@ -3061,7 +3117,7 @@ function resolveModel(
       }
     }
   }
-  return resolved;
+  return resolved === null ? rendered : resolved;
 }
 
 function serializeByValueID(id: number): string {
