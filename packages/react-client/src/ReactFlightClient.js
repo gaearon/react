@@ -5348,7 +5348,10 @@ function reviveModel(
   }
   if (isArray(value)) {
     for (let i = 0; i < value.length; i++) {
-      (value as any)[i] = reviveModel(response, value[i], value, '' + i);
+      const revived = reviveModel(response, value[i], value, '' + i);
+      if (revived !== value[i]) {
+        (value as any)[i] = revived;
+      }
     }
     // $FlowFixMe[invalid-compare]
     if (value[0] === REACT_ELEMENT_TYPE) {
@@ -5363,7 +5366,11 @@ function reviveModel(
       delete (value as any)[k];
     } else {
       const walked = reviveModel(response, (value as any)[k], value, k);
-      if (walked !== undefined) {
+      if (walked === (value as any)[k]) {
+        // Unchanged. Skip the write: the payload may share plain-data
+        // objects with the producer by identity (including frozen ones),
+        // and those never contain anything to revive.
+      } else if (walked !== undefined) {
         (value as any)[k] = walked;
       } else {
         delete (value as any)[k];
