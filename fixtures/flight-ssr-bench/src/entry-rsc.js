@@ -4,6 +4,7 @@ import {
 } from 'react-server-dom-webpack/server';
 import App from './App';
 import AppAsync from './AppAsync';
+import AppFragmented from './AppFragmented';
 
 export function renderRSCNode(clientManifest, Component, itemCount, options) {
   return renderToPipeableStream(
@@ -20,4 +21,4 @@ export function renderRSCEdge(clientManifest, Component, itemCount) {
   );
 }
 
-export {App, AppAsync};
+export {App, AppAsync, AppFragmented};

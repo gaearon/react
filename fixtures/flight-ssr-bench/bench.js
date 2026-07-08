@@ -415,11 +415,16 @@ async function main() {
     renderRSCEdge,
     App: RSCApp,
     AppAsync: RSCAppAsync,
+    AppFragmented: RSCAppFragmented,
   } = require('./build/rsc-bundle.js');
   const App = require('./src/App.js').default;
   const AppAsync = require('./src/AppAsync.js').default;
+  const AppFragmented = require('./src/AppFragmented.js').default;
 
   const ITEM_COUNT = 200;
+  // Sections in the fragmented app (~100 sibling paragraphs each); see
+  // https://github.com/facebook/react/issues/35125.
+  const FRAGMENTED_SECTION_COUNT = 20;
 
   const WARMUP = 50;
   const ITERATIONS = 1000;
@@ -468,6 +473,25 @@ async function main() {
   console.log(
     'Flight + Fizz (Node, async):%d bytes',
     flightFizzNodeAsyncHtml.length
+  );
+
+  const fizzNodeFragmentedHtml = await renderFizzNode(
+    AppFragmented,
+    FRAGMENTED_SECTION_COUNT
+  );
+  console.log(
+    'Fizz (Node, fragmented):    %d bytes',
+    fizzNodeFragmentedHtml.length
+  );
+
+  const flightFizzNodeFragmentedHtml = await renderFlightFizzNode(
+    renderRSCNode,
+    RSCAppFragmented,
+    FRAGMENTED_SECTION_COUNT
+  );
+  console.log(
+    'Flight + Fizz (Node, fragmented): %d bytes',
+    flightFizzNodeFragmentedHtml.length
   );
 
   const fizzEdgeHtml = await renderFizzEdge(App, ITEM_COUNT);
@@ -544,6 +568,27 @@ async function main() {
       PROFILE_WARMUP,
       PROFILE_ITERATIONS,
       path.join(profileDir, 'flight-fizz-node-async.cpuprofile')
+    );
+
+    await profileRun(
+      'Fizz (Node, fragmented)',
+      () => renderFizzNode(AppFragmented, FRAGMENTED_SECTION_COUNT),
+      PROFILE_WARMUP,
+      PROFILE_ITERATIONS,
+      path.join(profileDir, 'fizz-node-fragmented.cpuprofile')
+    );
+
+    await profileRun(
+      'Flight + Fizz (Node, fragmented)',
+      () =>
+        renderFlightFizzNode(
+          renderRSCNode,
+          RSCAppFragmented,
+          FRAGMENTED_SECTION_COUNT
+        ),
+      PROFILE_WARMUP,
+      PROFILE_ITERATIONS,
+      path.join(profileDir, 'flight-fizz-node-fragmented.cpuprofile')
     );
 
     await profileRun(
@@ -635,6 +680,29 @@ async function main() {
     );
     printConcurrentResult(flightFizzNodeAsync);
 
+    const fizzNodeFragmented = await runConcurrent(
+      'Fizz (Node, fragmented)',
+      () => renderFizzNode(AppFragmented, FRAGMENTED_SECTION_COUNT),
+      TOTAL,
+      CONCURRENCY,
+      CONC_WARMUP
+    );
+    printConcurrentResult(fizzNodeFragmented);
+
+    const flightFizzNodeFragmented = await runConcurrent(
+      'Flight + Fizz (Node, fragmented)',
+      () =>
+        renderFlightFizzNode(
+          renderRSCNode,
+          RSCAppFragmented,
+          FRAGMENTED_SECTION_COUNT
+        ),
+      TOTAL,
+      CONCURRENCY,
+      CONC_WARMUP
+    );
+    printConcurrentResult(flightFizzNodeFragmented);
+
     const fizzEdgeSync = await runConcurrent(
       'Fizz (Edge, sync)',
       () => renderFizzEdge(App, ITEM_COUNT),
@@ -679,6 +747,7 @@ async function main() {
       [
         ['Node sync', fizzNodeSync, flightFizzNodeSync],
         ['Node async', fizzNodeAsync, flightFizzNodeAsync],
+        ['Node fragmented', fizzNodeFragmented, flightFizzNodeFragmented],
         ['Edge sync', fizzEdgeSync, flightFizzEdgeSync],
         ['Edge async', fizzEdgeAsync, flightFizzEdgeAsync],
       ],
@@ -760,6 +829,40 @@ async function main() {
   );
   printResult(flightFizzNodeChannelAsync);
 
+  const fizzNodeFragmented = await runBenchmark(
+    'Fizz (Node, fragmented)',
+    () => renderFizzNode(AppFragmented, FRAGMENTED_SECTION_COUNT),
+    ITERATIONS,
+    WARMUP
+  );
+  printResult(fizzNodeFragmented);
+
+  const flightFizzNodeFragmented = await runBenchmark(
+    'Flight + Fizz (Node, fragmented)',
+    () =>
+      renderFlightFizzNode(
+        renderRSCNode,
+        RSCAppFragmented,
+        FRAGMENTED_SECTION_COUNT
+      ),
+    ITERATIONS,
+    WARMUP
+  );
+  printResult(flightFizzNodeFragmented);
+
+  const flightFizzNodeChannelFragmented = await runBenchmark(
+    'Flight + Fizz (Node, channel, fragmented)',
+    () =>
+      renderFlightFizzNodeChannel(
+        renderRSCNode,
+        RSCAppFragmented,
+        FRAGMENTED_SECTION_COUNT
+      ),
+    ITERATIONS,
+    WARMUP
+  );
+  printResult(flightFizzNodeChannelFragmented);
+
   const fizzEdgeSync = await runBenchmark(
     'Fizz (Edge, sync)',
     () => renderFizzEdge(App, ITEM_COUNT),
@@ -800,6 +903,7 @@ async function main() {
     [
       ['Node sync', fizzNodeSync, flightFizzNodeSync],
       ['Node async', fizzNodeAsync, flightFizzNodeAsync],
+      ['Node fragmented', fizzNodeFragmented, flightFizzNodeFragmented],
       ['Edge sync', fizzEdgeSync, flightFizzEdgeSync],
       ['Edge async', fizzEdgeAsync, flightFizzEdgeAsync],
     ],
@@ -814,8 +918,18 @@ async function main() {
     [
       ['Flight+Fizz sync', flightFizzNodeSync, flightFizzNodeChannelSync],
       ['Flight+Fizz async', flightFizzNodeAsync, flightFizzNodeChannelAsync],
+      [
+        'Flight+Fizz fragmented',
+        flightFizzNodeFragmented,
+        flightFizzNodeChannelFragmented,
+      ],
       ['vs plain Fizz sync', fizzNodeSync, flightFizzNodeChannelSync],
       ['vs plain Fizz async', fizzNodeAsync, flightFizzNodeChannelAsync],
+      [
+        'vs plain Fizz fragmented',
+        fizzNodeFragmented,
+        flightFizzNodeChannelFragmented,
+      ],
     ],
     median,
     'ms',

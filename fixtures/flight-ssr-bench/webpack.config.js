@@ -40,6 +40,9 @@ module.exports = {
   },
   // Production mode but no minification — we want optimized code paths
   // but readable profiles and a fair comparison between approaches.
+  // nodeEnv: false keeps process.env.NODE_ENV a runtime lookup so the
+  // bundled Flight server follows the NODE_ENV the bench is launched with
+  // (bench-fragmented.js runs in both development and production).
   mode: 'production',
-  optimization: {minimize: false},
+  optimization: {minimize: false, nodeEnv: false},
 };

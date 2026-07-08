@@ -407,6 +407,101 @@ function renderFlightFizzEdge(
 }
 
 // ---------------------------------------------------------------------------
+// Flight payload capture + replay (Node). Used by bench-fragmented.js to
+// separate client-side per-row costs from lazy/throw suspend machinery.
+// ---------------------------------------------------------------------------
+
+// Renders the RSC stream to completion and captures the raw Flight payload
+// as an array of Buffers, preserving the chunk boundaries the Node stream
+// produced.
+function captureRSCChunks(
+  renderRSCNode,
+  AppComponent,
+  itemCount,
+  clientManifest
+) {
+  const {pipe} = renderRSCNode(clientManifest, AppComponent, itemCount);
+  const output = new PassThrough();
+  return new Promise(function (resolve, reject) {
+    const chunks = [];
+    output.on('data', function (chunk) {
+      chunks.push(Buffer.from(chunk));
+    });
+    output.on('end', function () {
+      resolve(chunks);
+    });
+    output.on('error', reject);
+    pipe(output);
+  });
+}
+
+// Replays a pre-captured Flight payload through the Flight client + Fizz,
+// excluding the Flight server from the measurement.
+//
+// mode 'buffered': every chunk is written and processed before the Fizz
+// render starts. All chunks are resolved when Fizz reaches them, so lazy
+// references initialize synchronously and readChunk never throws.
+//
+// mode 'streamed': the Fizz render starts first and chunks arrive one
+// macrotask apart, like a streaming transfer. Fizz suspends (throw-based)
+// on every lazy row that hasn't arrived yet and retries as rows resolve.
+//
+// Both modes parse exactly the same bytes with the same chunk boundaries;
+// the difference between them is the cost of the throw/suspend/retry
+// machinery.
+async function renderFlightFizzNodeReplay(chunks, ssrManifest, mode) {
+  const React = require('react');
+  const {renderToPipeableStream} = require('react-dom/server');
+  const {createFromNodeStream} = require('react-server-dom-webpack/client');
+
+  const flightStream = new PassThrough();
+  const cachedResult = createFromNodeStream(flightStream, ssrManifest);
+
+  if (mode === 'buffered') {
+    for (const chunk of chunks) {
+      flightStream.write(chunk);
+    }
+    flightStream.end();
+    // Let the stream's data/end events flush so every row is resolved
+    // before the render below starts.
+    await new Promise(function (resolve) {
+      setImmediate(resolve);
+    });
+    if (cachedResult.status === 'pending') {
+      throw new Error(
+        'Expected the Flight payload to be fully resolved before rendering.'
+      );
+    }
+  } else {
+    let i = 0;
+    (function writeNext() {
+      if (i < chunks.length) {
+        flightStream.write(chunks[i++]);
+        setImmediate(writeNext);
+      } else {
+        flightStream.end();
+      }
+    })();
+  }
+
+  function Root() {
+    return React.use(cachedResult);
+  }
+
+  const output = new PassThrough();
+  const {pipe} = renderToPipeableStream(React.createElement(Root), {
+    onShellReady() {
+      pipe(output);
+    },
+    onError(e) {
+      console.error('Flight+Fizz replay error:', e);
+      output.destroy(e);
+    },
+  });
+  return nodeStreamToString(output);
+}
+
+// ---------------------------------------------------------------------------
 // Utilities: collect streams into strings.
 // ---------------------------------------------------------------------------
 
@@ -444,6 +539,8 @@ module.exports = {
   renderFizzEdge,
   renderFlightFizzNode,
   renderFlightFizzEdge,
+  captureRSCChunks,
+  renderFlightFizzNodeReplay,
   nodeStreamToString,
   webStreamToString,
 };
