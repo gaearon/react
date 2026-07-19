@@ -615,6 +615,10 @@ export type Request = {
   writtenClientReferences: Map<ClientReferenceKey, number>,
   writtenServerReferences: Map<ServerReference<any>, number>,
   writtenObjects: WeakMap<Reference, string>,
+  // Import metadata sub-values (bundler-interned chunk lists) already
+  // seen this request: '' after the first, inline sighting; a row
+  // reference once the instance has been outlined.
+  writtenImportMetadata: WeakMap<Reference, string>,
   temporaryReferences: void | TemporaryReferenceSet,
   identifierPrefix: string,
   identifierCount: number,
@@ -740,6 +744,7 @@ function RequestInstance(
   this.writtenClientReferences = new Map();
   this.writtenServerReferences = new Map();
   this.writtenObjects = new WeakMap();
+  this.writtenImportMetadata = new WeakMap();
   this.temporaryReferences = temporaryReferences;
   this.identifierPrefix = identifierPrefix || '';
   this.identifierCount = 1;
@@ -4446,14 +4451,81 @@ function emitErrorChunk(
   }
 }
 
+// Import metadata is emitted outside the model space, but bundlers can
+// resolve parts of it (chunk lists) to shared instances across modules
+// (see the interning in the webpack/turbopack bundler configs). Emission
+// honors that identity the way the model space does: a non-empty array
+// instance met for the second time in a request is outlined once into
+// its own row in the import queue and referenced from then on. Import
+// rows are parsed with the regular model reviver on the client, so the
+// references resolve like any other row reference and no client support
+// is needed. The first occurrence stays inline: an import row's id
+// resolves to the loaded module on the client, never to its metadata, so
+// an import row's body cannot be the target of a reference.
+const IMPORT_METADATA_SEEN_ONCE = '';
+
+function importMetadataReplacer(
+  request: Request,
+  key: string,
+  value: mixed,
+): mixed {
+  if (key === '') {
+    // The root of each stringify call (the metadata itself, or the value
+    // being outlined) is serialized in place.
+    return value;
+  }
+  if (typeof value === 'string') {
+    // The client parses import rows with the model reviver, so strings
+    // follow the model space's escaping rules.
+    return escapeStringValue(value);
+  }
+  if (isArray(value) && value.length > 0) {
+    const writtenImportMetadata = request.writtenImportMetadata;
+    const existing = writtenImportMetadata.get(value);
+    if (existing === undefined) {
+      writtenImportMetadata.set(value, IMPORT_METADATA_SEEN_ONCE);
+    } else if (existing === IMPORT_METADATA_SEEN_ONCE) {
+      // Second sighting: this instance earns its own row. The import
+      // queue flushes in push order, so the outlined row always arrives
+      // before the import rows that reference it.
+      request.pendingChunks++;
+      const outlinedId = request.nextChunkId++;
+      const json = stringifyImportMetadata(request, value);
+      const row = outlinedId.toString(16) + ':' + json + '\n';
+      request.completedImportChunks.push(stringToChunk(row));
+      const reference = serializeByValueID(outlinedId);
+      writtenImportMetadata.set(value, reference);
+      return reference;
+    } else {
+      return existing;
+    }
+  }
+  return value;
+}
+
+function stringifyImportMetadata(request: Request, metadata: mixed): string {
+  // $FlowFixMe[incompatible-type] stringify can return null
+  const json: string = stringify(metadata, function (key, value) {
+    return importMetadataReplacer(request, key, value);
+  });
+  return json;
+}
+
 function emitImportChunk(
   request: Request,
   id: number,
   clientReferenceMetadata: ClientReferenceMetadata,
   debug: boolean,
 ): void {
-  // $FlowFixMe[incompatible-type] stringify can return null
-  const json: string = stringify(clientReferenceMetadata);
+  let json: string;
+  if (__DEV__ && debug) {
+    // Debug import rows go to the debug channel, which regular rows
+    // cannot be referenced from: emit them self-contained.
+    // $FlowFixMe[incompatible-type] stringify can return null
+    json = stringify(clientReferenceMetadata);
+  } else {
+    json = stringifyImportMetadata(request, clientReferenceMetadata);
+  }
   const row = serializeRowHeader('I', id) + json + '\n';
   const processedChunk = stringToChunk(row);
   if (__DEV__ && debug) {

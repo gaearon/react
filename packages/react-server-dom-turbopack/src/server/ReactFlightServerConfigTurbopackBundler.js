@@ -42,6 +42,46 @@ export function getClientReferenceKey(
   return reference.$$async ? reference.$$id + '#async' : reference.$$id;
 }
 
+// Modules from the same chunk group list the same chunks, but a
+// JSON-parsed manifest gives every module entry its own copy, so the
+// shared list carries no shared identity. Canonicalize chunk lists per
+// manifest so equal lists resolve to one instance; the Flight server
+// honors identity when emitting import metadata and writes each shared
+// list once per request. Both maps are keyed on objects the manifest
+// owns, so they live exactly as long as the manifest itself; the
+// content key is computed once per distinct instance per process.
+const canonicalChunkListsByManifest: WeakMap<
+  ClientManifest,
+  Map<string, Array<string>>,
+> = new WeakMap();
+const canonicalChunkListByInstance: WeakMap<
+  Array<string>,
+  Array<string>,
+> = new WeakMap();
+
+function internChunkList(
+  config: ClientManifest,
+  chunks: Array<string>,
+): Array<string> {
+  const interned = canonicalChunkListByInstance.get(chunks);
+  if (interned !== undefined) {
+    return interned;
+  }
+  let table = canonicalChunkListsByManifest.get(config);
+  if (table === undefined) {
+    table = new Map();
+    canonicalChunkListsByManifest.set(config, table);
+  }
+  const key = JSON.stringify(chunks);
+  let canonical = table.get(key);
+  if (canonical === undefined) {
+    canonical = chunks;
+    table.set(key, canonical);
+  }
+  canonicalChunkListByInstance.set(chunks, canonical);
+  return canonical;
+}
+
 export function resolveClientReferenceMetadata<T>(
   config: ClientManifest,
   clientReference: ClientReference<T>,
@@ -80,9 +120,18 @@ export function resolveClientReferenceMetadata<T>(
     );
   }
   if (resolvedModuleData.async === true || clientReference.$$async === true) {
-    return [resolvedModuleData.id, resolvedModuleData.chunks, name, 1];
+    return [
+      resolvedModuleData.id,
+      internChunkList(config, resolvedModuleData.chunks),
+      name,
+      1,
+    ];
   } else {
-    return [resolvedModuleData.id, resolvedModuleData.chunks, name];
+    return [
+      resolvedModuleData.id,
+      internChunkList(config, resolvedModuleData.chunks),
+      name,
+    ];
   }
 }
 
