@@ -142,7 +142,7 @@ describe('ReactFlightResult model', () => {
     expect(decoded.html.props.helper()).toBe('hello');
   });
 
-  it.each(['prop', 'root', 'async'])(
+  it.each(['prop', 'root', 'async', 'use'])(
     'preserves a %s rejection and forwards its digest to the consumer',
     async position => {
       let reject;
@@ -150,13 +150,18 @@ describe('ReactFlightResult model', () => {
       async function AsyncComponent() {
         return promise;
       }
+      function UseComponent() {
+        return ReactServer.use(promise);
+      }
       const model =
         position === 'prop' ? (
           {data: promise}
         ) : position === 'root' ? (
           promise
-        ) : (
+        ) : position === 'async' ? (
           <AsyncComponent />
+        ) : (
+          <UseComponent />
         );
       let calls = 0;
       const result = await serverAct(() =>
@@ -467,7 +472,7 @@ describe('ReactFlightResult model', () => {
 
   it.each(
     [false, true].flatMap(directFirst =>
-      ['sync', 'promise', 'async'].map(mode => [directFirst, mode]),
+      ['sync', 'promise', 'async', 'use'].map(mode => [directFirst, mode]),
     ),
   )(
     'preserves keyed return slots and cycles (direct first: %s, %s)',
@@ -483,6 +488,9 @@ describe('ReactFlightResult model', () => {
       let calls = 0;
       function Component() {
         calls++;
+        if (mode === 'use') {
+          ReactServer.use(promise);
+        }
         return mode === 'promise' ? promise : element;
       }
       async function AsyncComponent() {
@@ -517,7 +525,7 @@ describe('ReactFlightResult model', () => {
       expect(readModel(direct.props.data.component)).toBe(returned);
       expect(readModel(expanded[3])).toBe(returned);
       expect(await expanded[2]).toBe(direct);
-      expect(calls).toBe(1);
+      expect(calls).toBe(mode === 'use' ? 2 : 1);
     },
   );
 
@@ -868,6 +876,78 @@ describe('ReactFlightResult model', () => {
     },
   );
 
+  it('expands a shared suspending Server Component returning a cyclic model', async () => {
+    let resolveFirst;
+    let resolveSecond;
+    const first = new Promise(r => (resolveFirst = r));
+    const second = new Promise(r => (resolveSecond = r));
+    let calls = 0;
+    function App() {
+      calls++;
+      const prefix = ReactServer.use(first.then(value => value));
+      const suffix = ReactServer.use(second.then(value => value));
+      expect(prefix + suffix).toBe('AB');
+      return object;
+    }
+    const element = <App />;
+    const model = Object.freeze({
+      first: element,
+      sibling: 'ready',
+      second: element,
+    });
+    const object = {parent: model, component: element, self: null};
+    object.self = object;
+    Object.freeze(object);
+
+    const result = await serverAct(() =>
+      ReactServerDOMServer.renderToResult(model),
+    );
+    const expanded = await ReactServerDOMClient.createFromResult(result);
+    expect(expanded.sibling).toBe('ready');
+    expect(expanded.first).toBe(expanded.second);
+    expect(calls).toBe(1);
+    await serverAct(() => resolveFirst('A'));
+    expect(calls).toBe(2);
+    await serverAct(() => resolveSecond('B'));
+    const value = readModel(expanded.first);
+    expect(value.parent).toBe(expanded);
+    expect(value.self).toBe(value);
+    expect(readModel(value.component)).toBe(value);
+    expect(readModel(expanded.second)).toBe(value);
+    expect(calls).toBe(3);
+  });
+
+  // Adapted from ReactFlightDOMBrowser-test with the native Result reader.
+  it('using a rejected promise will throw', async () => {
+    const promiseA = Promise.resolve('A');
+    const promiseB = Promise.reject(new Error('Oops!'));
+    const promiseC = Promise.resolve('C');
+
+    await expect(promiseB).rejects.toThrow('Oops!');
+
+    function Server() {
+      return (
+        ReactServer.use(promiseA) +
+        ReactServer.use(promiseB) +
+        ReactServer.use(promiseC)
+      );
+    }
+
+    const reportedErrors = [];
+    const result = await serverAct(() =>
+      ReactServerDOMServer.renderToResult(<Server />, {
+        onError(x) {
+          reportedErrors.push(x);
+        },
+      }),
+    );
+    await expect(ReactServerDOMClient.createFromResult(result)).rejects.toThrow(
+      'Oops!',
+    );
+    expect(reportedErrors.length).toBe(1);
+    expect(reportedErrors[0].message).toBe('Oops!');
+  });
+
   it.each([false, true])(
     'reports an async rejection once without losing a completed sibling (promise reason: %s)',
     async promiseReason => {
@@ -1052,72 +1132,95 @@ describe('ReactFlightResult model', () => {
   });
 
   // Adapted from ReactCache-test.
-  it('cacheSignal() aborts when the render finishes normally', async () => {
-    let renderedCacheSignal = null;
-    let resolve;
-    const promise = new Promise(r => (resolve = r));
+  it.each([false, true])(
+    'cacheSignal() aborts when the render finishes normally (use: %s)',
+    async suspendWithUse => {
+      let renderedCacheSignal = null;
+      let resolve;
+      const promise = new Promise(r => (resolve = r));
 
-    async function Test() {
-      renderedCacheSignal = ReactServer.cacheSignal();
+      async function Test() {
+        renderedCacheSignal = ReactServer.cacheSignal();
+        expect(renderedCacheSignal.aborted).toBe(false);
+        await promise;
+        return 'Hi';
+      }
+      function TestWithUse() {
+        renderedCacheSignal = ReactServer.cacheSignal();
+        expect(renderedCacheSignal.aborted).toBe(false);
+        ReactServer.use(promise);
+        return 'Hi';
+      }
+
+      const errors = [];
+      const result = await serverAct(() =>
+        ReactServerDOMServer.renderToResult(
+          suspendWithUse ? <TestWithUse /> : <Test />,
+          {
+            onError(x) {
+              errors.push(x);
+            },
+          },
+        ),
+      );
+
       expect(renderedCacheSignal.aborted).toBe(false);
-      await promise;
-      return 'Hi';
-    }
-
-    const errors = [];
-    const result = await serverAct(() =>
-      ReactServerDOMServer.renderToResult(<Test />, {
-        onError(x) {
-          errors.push(x);
-        },
-      }),
-    );
-
-    expect(renderedCacheSignal.aborted).toBe(false);
-    await serverAct(() => resolve());
-    expect(await ReactServerDOMClient.createFromResult(result)).toBe('Hi');
-    expect(errors).toEqual([]);
-    expect(renderedCacheSignal.aborted).toBe(true);
-    expect(renderedCacheSignal.reason.message).toContain(
-      'This render completed successfully.',
-    );
-  });
+      await serverAct(() => resolve());
+      expect(await ReactServerDOMClient.createFromResult(result)).toBe('Hi');
+      expect(errors).toEqual([]);
+      expect(renderedCacheSignal.aborted).toBe(true);
+      expect(renderedCacheSignal.reason.message).toContain(
+        'This render completed successfully.',
+      );
+    },
+  );
 
   // Adapted from ReactCache-test.
-  it('cacheSignal() aborts when the render is aborted', async () => {
-    let renderedCacheSignal;
-    let resolve;
-    const promise = new Promise(r => (resolve = r));
-    let calls = 0;
-    function Text() {
-      calls++;
-      return 'Hi';
-    }
-    async function Test() {
-      renderedCacheSignal = ReactServer.cacheSignal();
-      await promise;
-      return <Text />;
-    }
-    const errors = [];
-    const result = await serverAct(() =>
-      ReactServerDOMServer.renderToResult(<Test />, {
-        onError(error) {
-          errors.push(error);
-        },
-      }),
-    );
-    expect(renderedCacheSignal.aborted).toBe(false);
-    const reason = new Error('Timed out');
-    result.abort(reason);
-    await expect(ReactServerDOMClient.createFromResult(result)).rejects.toBe(
-      reason,
-    );
-    expect(renderedCacheSignal.aborted).toBe(true);
-    expect(renderedCacheSignal.reason).toBe(reason);
-    await serverAct(() => resolve());
-    expect(calls).toBe(0);
-    expect(errors).toEqual([]);
-  });
+  it.each([false, true])(
+    'cacheSignal() aborts when the render is aborted (use: %s)',
+    async suspendWithUse => {
+      let renderedCacheSignal;
+      let resolve;
+      const promise = new Promise(r => (resolve = r));
+      let calls = 0;
+      function Text() {
+        calls++;
+        return 'Hi';
+      }
+      async function Test() {
+        renderedCacheSignal = ReactServer.cacheSignal();
+        await promise;
+        return <Text />;
+      }
+      function TestWithUse() {
+        renderedCacheSignal = ReactServer.cacheSignal();
+        ReactServer.use(promise);
+        return <Text />;
+      }
+      const errors = [];
+      const result = await serverAct(() =>
+        ReactServerDOMServer.renderToResult(
+          suspendWithUse ? <TestWithUse /> : <Test />,
+          {
+            onError(error) {
+              errors.push(error);
+            },
+          },
+        ),
+      );
+      expect(renderedCacheSignal.aborted).toBe(false);
+      const reason = new Error('Timed out');
+      result.abort(reason);
+      await expect(ReactServerDOMClient.createFromResult(result)).rejects.toBe(
+        reason,
+      );
+      expect(renderedCacheSignal.aborted).toBe(true);
+      expect(renderedCacheSignal.reason).toBe(reason);
+      await serverAct(() => resolve());
+      expect(calls).toBe(0);
+      expect(errors).toEqual([]);
+    },
+  );
 
   // Adapted from react-client's ReactFlight-test.
   // @gate enableTaint

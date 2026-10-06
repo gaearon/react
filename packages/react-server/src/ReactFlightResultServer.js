@@ -45,6 +45,7 @@ import {
   HooksDispatcher,
   prepareToUseHooksForRequest,
   prepareToUseHooksForComponent,
+  getThenableStateAfterSuspending,
   resetHooksForRequest,
 } from './ReactFlightResultHooks';
 import {DefaultAsyncDispatcher} from './flight/ReactFlightResultAsyncDispatcher';
@@ -380,19 +381,23 @@ function renderFunctionComponent<Props: {[name: string]: mixed}>(
   let result: ReactClientValue;
   let componentDebugInfo: ReactComponentInfo;
   if (__DEV__) {
-    componentDebugInfo = {
-      name: (Component as any).displayName || Component.name || '',
-      env: (0, request.environmentName)(),
-      key,
-      owner: task.debugOwner,
-      stack:
-        task.debugStack === null
-          ? null
-          : filterStackTrace(request, parseStackTrace(task.debugStack, 1)),
-      props,
-      debugStack: task.debugStack,
-      debugTask: task.debugTask,
-    };
+    if (prevThenableState !== null) {
+      componentDebugInfo = (prevThenableState as any)._componentDebugInfo;
+    } else {
+      componentDebugInfo = {
+        name: (Component as any).displayName || Component.name || '',
+        env: (0, request.environmentName)(),
+        key,
+        owner: task.debugOwner,
+        stack:
+          task.debugStack === null
+            ? null
+            : filterStackTrace(request, parseStackTrace(task.debugStack, 1)),
+        props,
+        debugStack: task.debugStack,
+        debugTask: task.debugTask,
+      };
+    }
     prepareToUseHooksForComponent(prevThenableState, componentDebugInfo);
     // $FlowFixMe[constant-condition]
     if (supportsComponentStorage) {
@@ -763,11 +768,8 @@ function renderModel(
     if (request.status >= ABORTING) {
       throw request.fatalError;
     }
-    let error: mixed = thrownValue;
-    if (error === SuspenseException) {
-      getSuspendedThenable();
-      error = unsupportedResultFeature('Suspension');
-    }
+    const error =
+      thrownValue === SuspenseException ? getSuspendedThenable() : thrownValue;
     const model = task.model;
     if (
       model !== null &&
@@ -804,13 +806,9 @@ function renderModel(
         typeof error === 'object' &&
         typeof (error as any).then === 'function'
       ) {
-        if ((model as any).$$typeof === REACT_LAZY_TYPE) {
-          const ping = newTask.ping;
-          (error as any).then(ping, ping);
-        } else {
-          (error as any).then(noop, noop);
-          erroredTask(request, newTask, unsupportedResultFeature('Suspension'));
-        }
+        const ping = newTask.ping;
+        (error as any).then(ping, ping);
+        newTask.thenableState = getThenableStateAfterSuspending();
       } else {
         erroredTask(request, newTask, error);
       }
@@ -1084,28 +1082,32 @@ function retryTask(request: Request, task: Task): void {
     if (request.status >= ABORTING) {
       return;
     }
-    let error: mixed = thrownValue;
+    const error =
+      thrownValue === SuspenseException ? getSuspendedThenable() : thrownValue;
     const model = task.model;
-    if (error === SuspenseException) {
-      getSuspendedThenable();
-      error = unsupportedResultFeature('Suspension');
-    } else if (
-      error !== null &&
+    if (
+      error != null &&
       typeof error === 'object' &&
-      typeof (error as any).then === 'function'
+      typeof (error as any).then === 'function' &&
+      model !== null &&
+      typeof model === 'object' &&
+      ((model as any).$$typeof === REACT_ELEMENT_TYPE ||
+        (model as any).$$typeof === REACT_LAZY_TYPE)
     ) {
       if (
-        model !== null &&
-        typeof model === 'object' &&
-        (model as any).$$typeof === REACT_LAZY_TYPE
+        (model as any).$$typeof === REACT_ELEMENT_TYPE &&
+        !getRenderedModels(request, model, task.implicitSlot).has(model)
       ) {
-        task.status = PENDING;
-        const ping = task.ping;
-        (error as any).then(ping, ping);
-        return;
+        getRenderedModels(request, model, task.implicitSlot).set(
+          model,
+          createLazyWrapperAroundWakeable(task.promise as any),
+        );
       }
-      (error as any).then(noop, noop);
-      error = unsupportedResultFeature('Suspension');
+      task.status = PENDING;
+      task.thenableState = getThenableStateAfterSuspending();
+      const ping = task.ping;
+      (error as any).then(ping, ping);
+      return;
     }
     if (
       model !== null &&
