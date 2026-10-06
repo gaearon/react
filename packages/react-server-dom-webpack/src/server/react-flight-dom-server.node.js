@@ -22,3 +22,5 @@ export {
   createClientModuleProxy,
   createTemporaryReferenceSet,
 } from './ReactFlightDOMServerNode';
+
+export {renderToResult} from './ReactFlightDOMResultServerNode';
