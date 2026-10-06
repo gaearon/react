@@ -19,6 +19,20 @@ let ReactServerDOMServer;
 let ReactServerDOMClient;
 let act;
 let serverAct;
+let webpackModules;
+let clientExports;
+let webpackMap;
+
+function readModel(model) {
+  while (
+    model !== null &&
+    typeof model === 'object' &&
+    model.$$typeof === Symbol.for('react.lazy')
+  ) {
+    model = model._init(model._payload);
+  }
+  return model;
+}
 
 describe('ReactFlightResult model', () => {
   beforeEach(() => {
@@ -26,9 +40,17 @@ describe('ReactFlightResult model', () => {
     patchSetImmediate();
     jest.mock('react', () => require('react/react.react-server'));
     ReactServer = require('react');
+    jest.mock('react-server-dom-webpack/server', () =>
+      jest.requireActual('react-server-dom-webpack/server.node'),
+    );
+    const WebpackMock = require('./utils/WebpackMock');
+    webpackModules = WebpackMock.webpackModules;
+    clientExports = WebpackMock.clientExports;
+    webpackMap = WebpackMock.webpackMap;
     ReactServerDOMServer = require('react-server-dom-webpack/server.node');
     serverAct = require('internal-test-utils').serverAct;
 
+    jest.unmock('react-server-dom-webpack/server');
     jest.resetModules();
     __unmockReact();
     React = require('react');
@@ -37,12 +59,158 @@ describe('ReactFlightResult model', () => {
     act = require('internal-test-utils').act;
   });
 
+  it('resolves client references for a consumer and preserves the producer model', async () => {
+    const ClientWrapper = ReactServerDOMServer.registerClientReference(
+      function () {},
+      'wrapper',
+      'default',
+    );
+    const ClientModule =
+      ReactServerDOMServer.createClientModuleProxy('wrapper');
+    function Wrapper({children}) {
+      return children;
+    }
+    function helper() {
+      return 'hello';
+    }
+    const moduleExports = {Wrapper, helper, data: {text: 'world'}};
+    webpackModules['ssr-wrapper'] = moduleExports;
+    const clientManifest = {
+      wrapper: {id: 'browser-wrapper', chunks: [], name: '*'},
+    };
+    const moduleMap = {
+      'browser-wrapper': {
+        default: {id: 'ssr-wrapper', chunks: [], name: 'Wrapper'},
+        '*': {id: 'ssr-wrapper', chunks: [], name: '*'},
+      },
+    };
+    const options = {
+      clientManifest,
+      serverConsumerManifest: {
+        moduleMap,
+        moduleLoading: null,
+        serverModuleMap: null,
+      },
+    };
+    function Text() {
+      return <span>expanded</span>;
+    }
+    const html = (
+      <ClientWrapper
+        key="wrapper"
+        component={ClientWrapper}
+        helper={ClientModule.helper}
+        value={ClientModule.data}
+        module={ClientModule}>
+        <Text />
+      </ClientWrapper>
+    );
+    const result = await serverAct(() =>
+      ReactServerDOMServer.renderToResult({html}),
+    );
+    const producer = await ReactServerDOMClient.createFromResult(result);
+    const consumer = await ReactServerDOMClient.createFromResult(
+      result,
+      options,
+    );
+    expect(readModel(consumer.html.type)).toBe(Wrapper);
+    expect(consumer.html.key).toBe('wrapper');
+    expect(consumer.html.props.component).toBe(Wrapper);
+    expect(consumer.html.props.helper()).toBe('hello');
+    expect(consumer.html.props.value).toEqual({text: 'world'});
+    expect(consumer.html.props.module).toBe(moduleExports);
+    expect(consumer.html.props.children).toEqual(<span>expanded</span>);
+    expect(producer.html.type).toBe(ClientWrapper);
+    expect(producer.html.props.component).toBe(ClientWrapper);
+    expect(producer.html.props.module).toBe(ClientModule);
+
+    const consumer2 = await ReactServerDOMClient.createFromResult(
+      result,
+      options,
+    );
+    expect(consumer2).toEqual(consumer);
+    const stream = await serverAct(() =>
+      ReactServerDOMServer.renderToReadableStream(producer, clientManifest),
+    );
+    const decoded = await ReactServerDOMClient.createFromReadableStream(
+      stream,
+      {
+        serverConsumerManifest: options.serverConsumerManifest,
+      },
+    );
+    expect(readModel(decoded.html.type)).toBe(Wrapper);
+    expect(decoded.html.props.helper()).toBe('hello');
+  });
+
+  it.each(['type', 'prop', 'root'])(
+    'waits for a pending client module used as a %s',
+    async position => {
+      let resolveModule;
+      const promise = new Promise(resolve => (resolveModule = resolve));
+      function Component({text}) {
+        return <span>{text ? text() : 'ready'}</span>;
+      }
+      const Client = clientExports(
+        {Component, text: () => 'ready'},
+        'client-module',
+        'client-module.js',
+        promise,
+      );
+      const model =
+        position === 'root' ? (
+          {text: Client.text}
+        ) : (
+          <React.Suspense fallback="loading">
+            <Client.Component text={position === 'prop' ? Client.text : null} />
+          </React.Suspense>
+        );
+      const result = await serverAct(() =>
+        ReactServerDOMServer.renderToResult(model),
+      );
+      const response = ReactServerDOMClient.createFromResult(result, {
+        clientManifest: webpackMap,
+        serverConsumerManifest: {
+          moduleMap: null,
+          moduleLoading: null,
+          serverModuleMap: null,
+        },
+      });
+      let completed = false;
+      response.then(() => {
+        completed = true;
+      });
+      if (position === 'root') {
+        await act(() => {});
+        expect(completed).toBe(false);
+      } else {
+        await act(async () => ReactNoop.render(await response));
+        expect(ReactNoop).toMatchRenderedOutput('loading');
+      }
+      await serverAct(() => resolveModule());
+      if (position === 'root') {
+        expect((await response).text()).toBe('ready');
+      } else {
+        await act(() => {});
+        expect(ReactNoop).toMatchRenderedOutput(<span>ready</span>);
+      }
+    },
+  );
+
   it('preserves a model without Server Components', async () => {
+    const ClientWrapper = ReactServerDOMServer.registerClientReference(
+      function ClientWrapper() {
+        throw new Error('A client reference must not be called on the server.');
+      },
+      'wrapper',
+      'default',
+    );
     const model = Object.freeze({
       html: (
-        <div>
-          <span>hello</span>
-        </div>
+        <ClientWrapper>
+          <div>
+            <span>hello</span>
+          </div>
+        </ClientWrapper>
       ),
       data: Object.freeze([NaN, -0, undefined, '$1', 42]),
     });
@@ -56,6 +224,14 @@ describe('ReactFlightResult model', () => {
   });
 
   it('expands Server Components and preserves sharing', async () => {
+    const ClientWrapper = ReactServerDOMServer.registerClientReference(
+      function ClientWrapper() {
+        throw new Error('A client reference must not be called on the server.');
+      },
+      'wrapper',
+      'default',
+    );
+    const ClientModule = ReactServerDOMServer.createClientModuleProxy('module');
     const unchanged = Object.freeze({text: 'hello'});
     const text = <span>world</span>;
     let calls = 0;
@@ -64,7 +240,16 @@ describe('ReactFlightResult model', () => {
       return text;
     }
     const child = <Text />;
-    const html = <div key="greeting">{child}</div>;
+    const html = (
+      <ClientWrapper
+        key="greeting"
+        data={unchanged}
+        header={child}
+        component={ClientWrapper}
+        module={ClientModule}>
+        <div>{child}</div>
+      </ClientWrapper>
+    );
     const shared = {unchanged, text: child, html};
     Object.defineProperty(shared, '__proto__', {
       value: child,
@@ -87,11 +272,18 @@ describe('ReactFlightResult model', () => {
     expect(
       Object.getOwnPropertyDescriptor(expanded[0], '__proto__').value,
     ).toBe(expanded[0].text);
-    expect(expanded[0].html.type).toBe('div');
+    expect(expanded[0].html.type).toBe(ClientWrapper);
     expect(expanded[0].html.key).toBe('greeting');
     expect(expanded[0].html.ref).toBe(null);
-    expect(expanded[0].html.props.children).toBe(expanded[0].text);
-    expect(html.props.children).toBe(child);
+    expect(expanded[0].html.props.data).toBe(expanded[2]);
+    expect(expanded[0].html.props.header).toBe(expanded[0].text);
+    expect(expanded[0].html.props.component).toBe(ClientWrapper);
+    expect(expanded[0].html.props.module).toBe(ClientModule);
+    expect(expanded[0].html.props.children.type).toBe('div');
+    expect(expanded[0].html.props.children.props.children).toBe(
+      expanded[0].text,
+    );
+    expect(html.props.children.props.children).toBe(child);
     if (__DEV__) {
       expect(expanded[0].html._owner).toBe(html._owner);
       expect(expanded[0].html._debugStack).toBe(html._debugStack);
@@ -243,6 +435,14 @@ describe('ReactFlightResult model', () => {
   // Adapted from react-client's ReactFlight-test.
   // @gate enableTaint
   it('errors when a tainted object is serialized', async () => {
+    function UserClient({user}) {
+      return <span>{user.name}</span>;
+    }
+    const User = ReactServerDOMServer.registerClientReference(
+      UserClient,
+      'user',
+      'default',
+    );
     const user = {
       name: 'Seb',
       age: 'rather not say',
@@ -253,7 +453,7 @@ describe('ReactFlightResult model', () => {
     );
     const errors = [];
     await serverAct(() =>
-      ReactServerDOMServer.renderToResult(<span user={user} />, {
+      ReactServerDOMServer.renderToResult(<User user={user} />, {
         onError(x) {
           errors.push(x.message);
         },

@@ -21,6 +21,11 @@ import {
   readResult,
 } from 'react-client/src/ReactFlightResultClient';
 import {getRoot} from 'shared/ReactFlightResult';
+import {
+  isClientReference,
+  resolveClientReferenceMetadata,
+} from '../server/ReactFlightServerConfigWebpackBundler';
+
 type Options = {
   clientManifest: ClientManifest,
   serverConsumerManifest: {
@@ -38,6 +43,22 @@ export function createFromResult<T>(
   if (options === undefined) {
     return getRoot(result);
   }
-  const response = createResponse(result);
+  const clientManifest = options.clientManifest;
+  const serverConsumerManifest = options.serverConsumerManifest;
+  const response = createResponse(
+    result,
+    serverConsumerManifest.moduleMap,
+    serverConsumerManifest.moduleLoading,
+    value => {
+      if (!isClientReference(value)) {
+        return null;
+      }
+      return resolveClientReferenceMetadata(
+        clientManifest,
+        value as any,
+      ) as any;
+    },
+    options.nonce,
+  );
   return readResult(response, result);
 }

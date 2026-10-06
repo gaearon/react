@@ -43,7 +43,11 @@ import {resolveOwner, setCurrentOwner} from './flight/ReactFlightCurrentOwner';
 import {getOwnerStackByComponentInfoInDev} from 'shared/ReactComponentInfoStack';
 import {resetOwnerStackLimit} from 'shared/ReactOwnerStackReset';
 import {callComponentInDEV} from './ReactFlightCallUserSpace';
-import {REACT_ELEMENT_TYPE, REACT_FRAGMENT_TYPE} from 'shared/ReactSymbols';
+import {
+  REACT_ELEMENT_TYPE,
+  REACT_FRAGMENT_TYPE,
+  REACT_SUSPENSE_TYPE,
+} from 'shared/ReactSymbols';
 import ReactSharedInternals from './ReactSharedInternalsServer';
 import isArray from 'shared/isArray';
 import getPrototypeOf from 'shared/getPrototypeOf';
@@ -416,7 +420,12 @@ function renderElement(
     return resolvedModel;
   }
 
-  if (typeof type === 'string' || type === REACT_FRAGMENT_TYPE) {
+  if (
+    typeof type === 'string' ||
+    type === REACT_FRAGMENT_TYPE ||
+    type === REACT_SUSPENSE_TYPE ||
+    (type != null && isClientReference(type))
+  ) {
     const implicitSlot = task.implicitSlot;
     task.implicitSlot = false;
     const resolvedProps = renderModel(request, task, props);
@@ -536,6 +545,14 @@ function renderModelDestructive(
 ): ReactClientValue {
   // As in Flight, this changes the task's current model. The input stays intact.
   task.model = value;
+
+  if (
+    value !== null &&
+    (typeof value === 'object' || typeof value === 'function') &&
+    isClientReference(value)
+  ) {
+    return value;
+  }
 
   if (enableTaint) {
     // Check the source before copying it. A copy does not carry its taint mark.

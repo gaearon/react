@@ -76,6 +76,74 @@ describe('ReactFlightResult', () => {
     };
   });
 
+  // From ReactFlight-test. The keyed IndirectItem cases remain unsupported.
+  it('does not inherit keys of children inside a server component', async () => {
+    function StatefulClient({name, initial}) {
+      const [state] = React.useState(initial);
+      return state;
+    }
+    const Stateful = clientExports({default: StatefulClient}).default;
+
+    function Item({item, initial}) {
+      // This key is the key of the single item of this component.
+      // It's NOT part of the key of the list the parent component is
+      // in.
+      return (
+        <div key={item}>
+          {item}
+          <Stateful name={item} initial={initial} />
+        </div>
+      );
+    }
+
+    const result = await serverAct(() =>
+      ReactServerDOMServer.renderToResult(
+        <>
+          <Item item="A" initial={1} />
+          <Item item="B" initial={2} />
+        </>,
+      ),
+    );
+    const response = ReactServerDOMResultClient.createFromResult(result, {
+      clientManifest: webpackMap,
+      serverConsumerManifest: {
+        moduleMap: null,
+        moduleLoading: null,
+        serverModuleMap: null,
+      },
+    });
+
+    const container = document.createElement('div');
+    const root = ReactDOMClient.createRoot(container);
+    await act(async () => {
+      root.render(await response);
+    });
+    expect(container.innerHTML).toBe('<div>A1</div><div>B2</div>');
+
+    // This means that they shouldn't swap state when the properties update
+    const result2 = await serverAct(() =>
+      ReactServerDOMServer.renderToResult(
+        <>
+          <Item item="B" initial={3} />
+          <Item item="A" initial={4} />
+        </>,
+      ),
+    );
+    const response2 = ReactServerDOMResultClient.createFromResult(result2, {
+      clientManifest: webpackMap,
+      serverConsumerManifest: {
+        moduleMap: null,
+        moduleLoading: null,
+        serverModuleMap: null,
+      },
+    });
+
+    await act(async () => {
+      root.render(await response2);
+    });
+    expect(container.innerHTML).toBe('<div>B3</div><div>A4</div>');
+  });
+
   it('should resolve HTML', async () => {
     function Text({children}) {
       return <span>{children}</span>;
@@ -116,6 +184,72 @@ describe('ReactFlightResult', () => {
         </div>
       ),
     });
+  });
+
+  // Adapted from the context provider test in ReactFlightDOM-test. ServerContent
+  // keeps the same subtree while exercising expansion inside the client wrapper.
+  it('can render a client Context.Provider from a server component', async () => {
+    // Create a context in a client module
+    const TestContext = React.createContext('default');
+    const ClientModule = clientExports({
+      TestContext,
+    });
+
+    // Client component that reads context
+    function ClientConsumer() {
+      const value = React.useContext(TestContext);
+      return <span>{value}</span>;
+    }
+    const {ClientConsumer: ClientConsumerRef} = clientExports({ClientConsumer});
+
+    function Print({response}) {
+      return use(response);
+    }
+
+    function App({response}) {
+      return (
+        <Suspense fallback={<h1>Loading...</h1>}>
+          <Print response={response} />
+        </Suspense>
+      );
+    }
+
+    function ServerContent() {
+      return (
+        <div>
+          <ClientConsumerRef />
+        </div>
+      );
+    }
+
+    // Server component that provides context
+    function ServerApp() {
+      return (
+        <ClientModule.TestContext.Provider value="from-server">
+          <ServerContent />
+        </ClientModule.TestContext.Provider>
+      );
+    }
+
+    const result = await serverAct(() =>
+      ReactServerDOMServer.renderToResult(<ServerApp />),
+    );
+    const response = ReactServerDOMResultClient.createFromResult(result, {
+      clientManifest: webpackMap,
+      serverConsumerManifest: {
+        moduleMap: null,
+        moduleLoading: null,
+        serverModuleMap: null,
+      },
+    });
+
+    const container = document.createElement('div');
+    const root = ReactDOMClient.createRoot(container);
+    await act(() => {
+      root.render(<App response={response} />);
+    });
+
+    expect(container.innerHTML).toBe('<div><span>from-server</span></div>');
   });
 
   it('should resolve the root', async () => {
@@ -247,7 +381,7 @@ describe('ReactFlightResult', () => {
     expect(container.innerHTML).toBe('<p>@div</p>');
   });
 
-  it.skip('should be able to esm compat test module references', async () => {
+  it('should be able to esm compat test module references', async () => {
     const ESMCompatModule = {
       __esModule: true,
       default: function ({greeting}) {
@@ -300,7 +434,7 @@ describe('ReactFlightResult', () => {
     expect(container.innerHTML).toBe('<p>Hello World</p>');
   });
 
-  it.skip('should be able to render a named component export', async () => {
+  it('should be able to render a named component export', async () => {
     const Module = {
       Component: function ({greeting}) {
         return greeting + ' World';
@@ -341,7 +475,7 @@ describe('ReactFlightResult', () => {
     expect(container.innerHTML).toBe('<p>Hello World</p>');
   });
 
-  it.skip('should be able to render a module split named component export', async () => {
+  it('should be able to render a module split named component export', async () => {
     const Module = {
       // This gets split into a separate module from the original one.
       split: function ({greeting}) {
