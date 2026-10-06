@@ -252,6 +252,67 @@ describe('ReactFlightResult', () => {
     expect(container.innerHTML).toBe('<div><span>from-server</span></div>');
   });
 
+  // Adapted from the cycle tests in react-client's ReactFlight-test.
+  it('can transport cyclic objects', async () => {
+    function ComponentClient({prop}) {
+      expect(prop.obj.obj.obj).toBe(prop.obj.obj);
+    }
+    const Component = clientExports(ComponentClient);
+
+    const cyclic = {obj: null};
+    cyclic.obj = cyclic;
+    const model = <Component prop={cyclic} />;
+
+    const result = await serverAct(() =>
+      ReactServerDOMServer.renderToResult(model),
+    );
+    const response = ReactServerDOMResultClient.createFromResult(result, {
+      clientManifest: webpackMap,
+      serverConsumerManifest: {
+        moduleMap: null,
+        moduleLoading: null,
+        serverModuleMap: null,
+      },
+    });
+
+    const container = document.createElement('div');
+    const root = ReactDOMClient.createRoot(container);
+    await act(async () => {
+      root.render(await response);
+    });
+  });
+
+  it('can transport cyclic arrays', async () => {
+    function ComponentClient({prop, obj}) {
+      expect(prop[1]).toBe(prop);
+      expect(prop[0]).toBe(obj);
+    }
+    const Component = clientExports(ComponentClient);
+
+    const obj = {};
+    const cyclic = [obj];
+    cyclic[1] = cyclic;
+    const model = <Component prop={cyclic} obj={obj} />;
+
+    const result = await serverAct(() =>
+      ReactServerDOMServer.renderToResult(model),
+    );
+    const response = ReactServerDOMResultClient.createFromResult(result, {
+      clientManifest: webpackMap,
+      serverConsumerManifest: {
+        moduleMap: null,
+        moduleLoading: null,
+        serverModuleMap: null,
+      },
+    });
+
+    const container = document.createElement('div');
+    const root = ReactDOMClient.createRoot(container);
+    await act(async () => {
+      root.render(await response);
+    });
+  });
+
   it('should resolve the root', async () => {
     // Model
     function Text({children}) {

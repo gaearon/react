@@ -204,14 +204,18 @@ describe('ReactFlightResult model', () => {
       'wrapper',
       'default',
     );
+    const cyclic = {element: null};
+    const html = (
+      <ClientWrapper data={cyclic}>
+        <div>
+          <span>hello</span>
+        </div>
+      </ClientWrapper>
+    );
+    cyclic.element = html;
+    Object.freeze(cyclic);
     const model = Object.freeze({
-      html: (
-        <ClientWrapper>
-          <div>
-            <span>hello</span>
-          </div>
-        </ClientWrapper>
-      ),
+      html,
       data: Object.freeze([NaN, -0, undefined, '$1', 42]),
     });
     const result = await serverAct(() =>
@@ -221,6 +225,7 @@ describe('ReactFlightResult model', () => {
     expect(result.pipe).toBe(undefined);
     const expanded = await ReactServerDOMClient.createFromResult(result);
     expect(expanded).toEqual(model);
+    expect(expanded.html.props.data.element).toBe(expanded.html);
   });
 
   it('expands Server Components and preserves sharing', async () => {
@@ -296,6 +301,208 @@ describe('ReactFlightResult model', () => {
     expect(calls).toBe(1);
   });
 
+  it.each([0, 1])(
+    'expands a Server Component at index %i in a mixed object and array cycle',
+    async changedIndex => {
+      const unchanged = {self: null};
+      unchanged.self = unchanged;
+      Object.freeze(unchanged);
+      const text = <span>expanded</span>;
+      let calls = 0;
+      function Text() {
+        calls++;
+        return text;
+      }
+      const child = <Text />;
+      const object = {array: null, unchanged};
+      const array = new Array(4);
+      array[changedIndex] = child;
+      array[1 - changedIndex] = object;
+      array[3] = array;
+      object.array = array;
+      Object.defineProperty(object, '__proto__', {
+        value: array,
+        enumerable: true,
+        configurable: true,
+        writable: true,
+      });
+      Object.freeze(object);
+      Object.freeze(array);
+      const model = Object.freeze([object, array, object, child, unchanged]);
+
+      const result = await serverAct(() =>
+        ReactServerDOMServer.renderToResult(model),
+      );
+      const expanded = await ReactServerDOMClient.createFromResult(result);
+      const expandedObject = expanded[0];
+      const expandedArray = expanded[1];
+      expect(expandedObject).toBe(expanded[2]);
+      expect(expandedObject.array).toBe(expandedArray);
+      expect(expandedObject.unchanged).toBe(expanded[4]);
+      expect(expanded[4].self).toBe(expanded[4]);
+      expect(Object.getPrototypeOf(expandedObject)).toBe(Object.prototype);
+      expect(
+        Object.getOwnPropertyDescriptor(expandedObject, '__proto__').value,
+      ).toBe(expandedArray);
+      expect(expandedArray[changedIndex]).toBe(expanded[3]);
+      expect(expandedArray[1 - changedIndex]).toBe(expandedObject);
+      expect(expandedArray[3]).toBe(expandedArray);
+      expect(expandedArray.length).toBe(4);
+      expect(2 in expandedArray).toBe(false);
+      expect(expanded[3]).toEqual(text);
+      expect(object.array).toBe(array);
+      expect(array[changedIndex]).toBe(child);
+      expect(calls).toBe(1);
+    },
+  );
+
+  it.each([false, true])(
+    'preserves a cycle through client element props (props first: %s)',
+    async propsFirst => {
+      const ClientWrapper = ReactServerDOMServer.registerClientReference(
+        function ClientWrapper() {
+          throw new Error(
+            'A client reference must not be called on the server.',
+          );
+        },
+        'wrapper',
+        'default',
+      );
+      const text = <span>expanded</span>;
+      function Text() {
+        return text;
+      }
+      const child = <Text />;
+      const object = {element: null, child};
+      const element = (
+        <ClientWrapper key="cycle" data={object}>
+          {child}
+        </ClientWrapper>
+      );
+      object.element = element;
+      Object.freeze(object);
+      const values = Object.freeze([object, element, element.props]);
+      const model = Object.freeze({
+        first: propsFirst ? element.props : object,
+        values,
+      });
+
+      const result = await serverAct(() =>
+        ReactServerDOMServer.renderToResult(model),
+      );
+      const output = await ReactServerDOMClient.createFromResult(result);
+      const expanded = output.values;
+      expect(output.first).toBe(propsFirst ? expanded[2] : expanded[0]);
+      expect(expanded[0].element).toBe(expanded[1]);
+      expect(expanded[0].child).toEqual(text);
+      expect(expanded[1].props).toBe(expanded[2]);
+      expect(expanded[2].data).toBe(expanded[0]);
+      expect(expanded[2].children).toBe(expanded[0].child);
+      expect(expanded[1].type).toBe(ClientWrapper);
+      expect(expanded[1].key).toBe('cycle');
+      expect(object.element).toBe(element);
+      expect(element.props.data).toBe(object);
+      if (__DEV__) {
+        expect(expanded[1]._owner).toBe(element._owner);
+        expect(expanded[1]._debugStack).toBe(element._debugStack);
+        expect(expanded[1]._debugTask).toBe(element._debugTask);
+        expect(Object.isFrozen(expanded[1])).toBe(true);
+        expect(Object.isFrozen(expanded[2])).toBe(true);
+      }
+    },
+  );
+
+  it.each([false, true])(
+    'preserves keyed return slots and cycles (direct first: %s)',
+    async directFirst => {
+      const data = {element: null, component: null};
+      const element = (
+        <div key="outer" data={data}>
+          <span key="inner">hello</span>
+        </div>
+      );
+      let calls = 0;
+      function Component() {
+        calls++;
+        return element;
+      }
+      const component = <Component />;
+      data.element = element;
+      data.component = component;
+      Object.freeze(data);
+      const model = directFirst
+        ? [element, component, element, component]
+        : [component, element, element, component];
+
+      const result = await serverAct(() =>
+        ReactServerDOMServer.renderToResult(model),
+      );
+      const expanded = await ReactServerDOMClient.createFromResult(result);
+
+      const direct = expanded[directFirst ? 0 : 1];
+      const returned = readModel(expanded[directFirst ? 1 : 0]);
+      expect(Array.isArray(returned)).toBe(true);
+      expect(returned.length).toBe(1);
+      expect(returned[0].key).toBe('outer');
+      expect(returned[0].props.children).toEqual(
+        <span key="inner">hello</span>,
+      );
+      expect(returned[0].props.data).toBe(direct.props.data);
+      expect(direct.props.data.element).toBe(direct);
+      expect(readModel(direct.props.data.component)).toBe(returned);
+      expect(readModel(expanded[3])).toBe(returned);
+      expect(expanded[2]).toBe(direct);
+      expect(calls).toBe(1);
+    },
+  );
+
+  it('expands a Server Component returning a container that refers back to it', async () => {
+    let calls = 0;
+    const object = {child: null};
+    function App() {
+      calls++;
+      return object;
+    }
+    const element = <App />;
+    object.child = element;
+    Object.freeze(object);
+
+    const result = await serverAct(() =>
+      ReactServerDOMServer.renderToResult(element),
+    );
+    const expanded = await ReactServerDOMClient.createFromResult(result);
+    expect(expanded.child).toBe(expanded);
+    expect(object.child).toBe(element);
+    expect(calls).toBe(1);
+  });
+
+  it('resolves a chain of Server Components to the same cyclic container', async () => {
+    let calls = 0;
+    const object = {child: null};
+    function A() {
+      calls++;
+      return b;
+    }
+    function B() {
+      calls++;
+      return object;
+    }
+    const a = <A />;
+    const b = <B />;
+    object.child = a;
+    Object.freeze(object);
+    const model = Object.freeze([a, b, object]);
+
+    const result = await serverAct(() =>
+      ReactServerDOMServer.renderToResult(model),
+    );
+    const expanded = await ReactServerDOMClient.createFromResult(result);
+    expect(expanded[0]).toBe(expanded[1]);
+    expect(expanded[0]).toBe(expanded[2]);
+    expect(expanded[0].child).toBe(expanded[0]);
+    expect(calls).toBe(2);
+  });
+
   it('aborts before starting work without calling Server Components', async () => {
     let calls = 0;
     function App() {
@@ -312,6 +519,52 @@ describe('ReactFlightResult model', () => {
       reason,
     );
     expect(calls).toBe(0);
+  });
+
+  it.each([undefined, null, 'text', NaN, -0])(
+    'expands a shared Server Component returning %s once',
+    async value => {
+      let calls = 0;
+      function App() {
+        calls++;
+        return value;
+      }
+      const element = <App />;
+      const result = await serverAct(() =>
+        ReactServerDOMServer.renderToResult([element, element]),
+      );
+      const expanded = await ReactServerDOMClient.createFromResult(result);
+      expect(expanded[0]).toBe(value);
+      expect(expanded[1]).toBe(value);
+      expect(calls).toBe(1);
+    },
+  );
+
+  it('reports a stack overflow for a cycle consisting only of Server Components', async () => {
+    let calls = 0;
+    function A() {
+      calls++;
+      return b;
+    }
+    function B() {
+      calls++;
+      return a;
+    }
+    const a = <A />;
+    const b = <B />;
+    const errors = [];
+    const result = await serverAct(() =>
+      ReactServerDOMServer.renderToResult(a, {
+        onError(error) {
+          errors.push(error);
+        },
+      }),
+    );
+    await expect(ReactServerDOMClient.createFromResult(result)).rejects.toThrow(
+      RangeError,
+    );
+    expect(errors.length).toBe(1);
+    expect(calls).toBe(2);
   });
 
   // Adapted from the Hooks tests in react-client's ReactFlight-test.

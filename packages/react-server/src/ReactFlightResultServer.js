@@ -150,7 +150,7 @@ export type Request = {
   rejectRoot: (error: mixed) => void,
   renderedModels: WeakMap<Reference, ReactClientValue>,
   renderedImplicitModels: WeakMap<Reference, ReactClientValue>,
-  renderingModels: WeakSet<Reference>,
+  renderingComponents: Map<Reference, ReactClientValue>,
   status: 10 | 11 | 12 | 14,
   fatalError: mixed,
   cache: Map<Function, mixed>,
@@ -162,6 +162,7 @@ export type Request = {
   taintCleanupQueue: Array<string | bigint>,
   onError: (error: mixed) => ?string,
   // DEV-only
+  completedElements: Array<ReactElement>,
   environmentName: () => string,
   filterStackFrame: (
     url: string,
@@ -225,7 +226,7 @@ function RequestInstance(
   this.result = createResult(root, reason => abort(this, reason));
   this.renderedModels = new WeakMap();
   this.renderedImplicitModels = new WeakMap();
-  this.renderingModels = new WeakSet();
+  this.renderingComponents = new Map();
   this.cache = new Map();
   this.cacheController = new AbortController();
   this.abortableTasks = abortSet;
@@ -235,6 +236,7 @@ function RequestInstance(
   this.taintCleanupQueue = cleanupQueue;
   this.onError = onError === undefined ? defaultErrorHandler : onError;
   if (__DEV__) {
+    this.completedElements = [];
     this.environmentName = () => 'Server';
     this.filterStackFrame = defaultFilterStackFrame;
   }
@@ -393,7 +395,6 @@ function renderElement(
   task: Task,
   value: ReactClientValue,
 ): ReactClientValue {
-  // Keep the element shell so unchanged elements can pass through by identity.
   const element: ReactElement = value as any;
   const type = element.type;
   const key = element.key;
@@ -412,12 +413,29 @@ function renderElement(
     if (key !== null) {
       throw unsupportedResultFeature('Keyed Server Components');
     }
+    if (request.renderingComponents.has(element)) {
+      const prevImplicitSlot = task.implicitSlot;
+      task.implicitSlot = true;
+      const resolvedModel = renderModelDestructive(
+        request,
+        task,
+        request.renderingComponents.get(element),
+      );
+      task.implicitSlot = prevImplicitSlot;
+      return resolvedModel;
+    }
     const result = renderFunctionComponent(request, task, key, type, props);
     const prevImplicitSlot = task.implicitSlot;
     task.implicitSlot = true;
-    const resolvedModel = renderModel(request, task, result);
-    task.implicitSlot = prevImplicitSlot;
-    return resolvedModel;
+    request.renderingComponents.set(element, result);
+    try {
+      const resolvedModel = renderModel(request, task, result);
+      request.renderedModels.set(element, resolvedModel);
+      task.implicitSlot = prevImplicitSlot;
+      return resolvedModel;
+    } finally {
+      request.renderingComponents.delete(element);
+    }
   }
 
   if (
@@ -426,19 +444,16 @@ function renderElement(
     type === REACT_SUSPENSE_TYPE ||
     (type != null && isClientReference(type))
   ) {
-    const implicitSlot = task.implicitSlot;
-    task.implicitSlot = false;
-    const resolvedProps = renderModel(request, task, props);
-    if (resolvedProps === props) {
-      return implicitSlot && key !== null ? [value] : value;
+    if (__DEV__ && task.implicitSlot) {
+      element._store.validated = 1;
     }
-    let resolvedElement: React$Element<any>;
+    let resolvedElement: ReactElement;
     if (__DEV__) {
       resolvedElement = {
         $$typeof: REACT_ELEMENT_TYPE,
-        type,
-        key,
-        props: resolvedProps,
+        type: element.type,
+        key: element.key,
+        props,
         _owner: element._owner,
         _store: element._store,
       } as any;
@@ -448,20 +463,31 @@ function renderElement(
         _debugStack: {value: element._debugStack, writable: true},
         _debugTask: {value: element._debugTask, writable: true},
       });
-      Object.freeze(resolvedProps);
-      Object.freeze(resolvedElement);
     } else {
       resolvedElement = {
         $$typeof: REACT_ELEMENT_TYPE,
-        type,
-        key,
+        type: element.type,
+        key: element.key,
         ref: null,
-        props: resolvedProps,
+        props,
       } as any;
     }
-    return implicitSlot && key !== null
-      ? [resolvedElement as any]
-      : resolvedElement;
+    const renderedModels = getRenderedModels(
+      request,
+      element as any,
+      task.implicitSlot,
+    );
+    const resolvedModel =
+      task.implicitSlot && key !== null
+        ? [resolvedElement as any]
+        : (resolvedElement as any);
+    renderedModels.set(element, resolvedModel);
+    task.implicitSlot = false;
+    resolvedElement.props = renderModel(request, task, props);
+    if (__DEV__) {
+      request.completedElements.push(resolvedElement);
+    }
+    return resolvedModel;
   }
 
   throw unsupportedResultFeature('This element type');
@@ -580,117 +606,82 @@ function renderModelDestructive(
     return value;
   }
 
-  if (request.renderingModels.has(value)) {
-    throw unsupportedResultFeature('Cyclic models');
-  }
   const renderedModels = getRenderedModels(request, value, task.implicitSlot);
-  if (renderedModels.has(value)) {
-    return renderedModels.get(value);
+  const existingModel = renderedModels.get(value);
+  if (existingModel !== undefined || renderedModels.has(value)) {
+    return existingModel;
   }
 
-  request.renderingModels.add(value);
-  try {
-    let resolvedModel;
-    if ((value as any).$$typeof === REACT_ELEMENT_TYPE) {
-      const element: ReactElement = value as any;
-      if (__DEV__) {
-        task.debugOwner = element._owner;
-        task.debugStack = element._debugStack;
-        task.debugTask = element._debugTask;
-      }
-
-      resolvedModel = renderElement(request, task, value);
-    } else if (isArray(value)) {
-      const array: Array<ReactClientValue> = value as any;
-      const keys = Reflect.ownKeys(array);
-      for (let i = 0; i < keys.length; i++) {
-        const key = keys[i];
-        if (typeof key === 'symbol') {
-          throw unsupportedResultFeature('Symbol properties');
-        }
-        if (key === 'length') {
-          continue;
-        }
-        const index = +key;
-        if (
-          index.toString() !== key ||
-          !Number.isInteger(index) ||
-          index < 0 ||
-          index >= array.length
-        ) {
-          throw unsupportedResultFeature('Array properties');
-        }
-      }
-      task.implicitSlot = false;
-      let copy = null;
-      for (let i = 0; i < array.length; i++) {
-        if (!hasOwnProperty.call(array, i)) {
-          continue;
-        }
-        const child = renderModel(request, task, array[i]);
-        if (!Object.is(child, array[i])) {
-          if (copy === null) {
-            copy = array.slice();
-          }
-          copy[i] = child;
-        }
-      }
-      resolvedModel = copy === null ? array : copy;
-    } else {
-      const object: ReactClientObject = value as any;
-      if (typeof (object as any).then === 'function') {
-        (object as any).then(noop, noop);
-        throw unsupportedResultFeature('Async values');
-      }
-      if (getPrototypeOf(object) !== ObjectPrototype) {
-        throw unsupportedResultFeature('This object type');
-      }
-      if (Object.getOwnPropertySymbols(object).length !== 0) {
+  if ((value as any).$$typeof === REACT_ELEMENT_TYPE) {
+    const element: ReactElement = value as any;
+    if (__DEV__) {
+      task.debugOwner = element._owner;
+      task.debugStack = element._debugStack;
+      task.debugTask = element._debugTask;
+    }
+    return renderElement(request, task, value);
+  } else if (isArray(value)) {
+    const array: Array<ReactClientValue> = value as any;
+    const keys = Reflect.ownKeys(array);
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      if (typeof key === 'symbol') {
         throw unsupportedResultFeature('Symbol properties');
       }
-      task.implicitSlot = false;
-      let copy: null | {[key: string]: ReactClientValue} = null;
-      const keys = Object.keys(object);
-      for (let i = 0; i < keys.length; i++) {
-        const key = keys[i];
-        const originalChild = object[key];
-        const child = renderModel(request, task, originalChild);
-        if (copy === null) {
-          if (Object.is(child, originalChild)) {
-            continue;
-          }
-          copy = {} as {[key: string]: ReactClientValue};
-          for (let j = 0; j < i; j++) {
-            const copyKey = keys[j];
-            if (copyKey === __PROTO__) {
-              Object.defineProperty(copy, copyKey, {
-                value: object[copyKey],
-                enumerable: true,
-                writable: true,
-                configurable: true,
-              });
-            } else {
-              copy[copyKey] = object[copyKey];
-            }
-          }
-        }
-        if (key === __PROTO__) {
-          Object.defineProperty(copy, key, {
-            value: child,
-            enumerable: true,
-            writable: true,
-            configurable: true,
-          });
-        } else {
-          copy[key] = child;
-        }
+      if (key === 'length') {
+        continue;
       }
-      resolvedModel = copy === null ? object : copy;
+      const index = +key;
+      if (
+        index.toString() !== key ||
+        !Number.isInteger(index) ||
+        index < 0 ||
+        index >= array.length
+      ) {
+        throw unsupportedResultFeature('Array properties');
+      }
     }
-    renderedModels.set(value, resolvedModel);
-    return resolvedModel;
-  } finally {
-    request.renderingModels.delete(value);
+    const copy: Array<ReactClientValue> = [];
+    request.renderedModels.set(array, copy);
+    task.implicitSlot = false;
+    for (let i = 0; i < array.length; i++) {
+      if (hasOwnProperty.call(array, i)) {
+        copy[i] = renderModel(request, task, array[i]);
+      }
+    }
+    copy.length = array.length;
+    return copy;
+  } else {
+    const object: ReactClientObject = value as any;
+    if (typeof (object as any).then === 'function') {
+      (object as any).then(noop, noop);
+      throw unsupportedResultFeature('Async values');
+    }
+    if (getPrototypeOf(object) !== ObjectPrototype) {
+      throw unsupportedResultFeature('This object type');
+    }
+    if (Object.getOwnPropertySymbols(object).length !== 0) {
+      throw unsupportedResultFeature('Symbol properties');
+    }
+    const copy: {[key: string]: ReactClientValue} = {};
+    request.renderedModels.set(object, copy);
+    task.implicitSlot = false;
+    const keys = Object.keys(object);
+    for (let i = 0; i < keys.length; i++) {
+      const key = keys[i];
+      const child = renderModel(request, task, object[key]);
+      if (key === __PROTO__) {
+        Object.defineProperty(copy, key, {
+          value: child,
+          enumerable: true,
+          writable: true,
+          configurable: true,
+        });
+      } else {
+        copy[key] = child;
+      }
+    }
+    return copy;
   }
 }
 
@@ -767,6 +758,13 @@ function retryTask(request: Request, task: Task): void {
     if (request.status === CLOSED || request.status === ABORTING) {
       return;
     }
+    if (__DEV__) {
+      const elements = request.completedElements;
+      for (let i = 0; i < elements.length; i++) {
+        Object.freeze(elements[i].props);
+        Object.freeze(elements[i]);
+      }
+    }
     task.status = COMPLETED;
     request.resolveRoot(resolvedModel);
   } catch (thrownValue) {
@@ -785,6 +783,9 @@ function retryTask(request: Request, task: Task): void {
     erroredTask(request, task, error);
   } finally {
     request.abortableTasks.delete(task);
+    if (__DEV__) {
+      request.completedElements.length = 0;
+    }
     request.status = CLOSED;
     if (enableTaint) {
       cleanupTaintQueue(request);

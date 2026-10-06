@@ -349,6 +349,9 @@ function createElement(
       props: element.props,
     } as any;
   }
+  if (registerModel) {
+    response._models.set(element, resolvedElement);
+  }
   const type = element.type;
   const moduleChunk =
     type !== null && (typeof type === 'object' || typeof type === 'function')
@@ -358,10 +361,6 @@ function createElement(
     resolvedElement.type = createLazyChunkWrapper(moduleChunk);
   }
   resolvedElement.props = readModel(response, element.props);
-  if (registerModel) {
-    response._models.set(element, resolvedElement);
-  }
-
   if (__DEV__) {
     response._completedElements.push(resolvedElement);
   }
@@ -428,16 +427,17 @@ function readModel(response: Response, value: any): any {
     return readElement(response, value);
   } else if (isArray(value)) {
     const copy: Array<any> = new Array(value.length);
+    models.set(value, copy);
     for (let i = 0; i < value.length; i++) {
       if (hasOwnProperty.call(value, i)) {
         copy[i] = readModel(response, value[i]);
       }
     }
-    models.set(value, copy);
     return copy;
   } else {
     const object: {[key: string]: any} = value;
     const copy: {[key: string]: any} = {};
+    models.set(value, copy);
     const keys = Object.keys(object);
     for (let i = 0; i < keys.length; i++) {
       const key = keys[i];
@@ -453,7 +453,6 @@ function readModel(response: Response, value: any): any {
         copy[key] = child;
       }
     }
-    models.set(value, copy);
     return copy;
   }
 }
