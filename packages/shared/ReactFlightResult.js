@@ -44,3 +44,16 @@ export function getErrorDigest<T>(
 ): void | string {
   return result.errorDigests.get(thenable);
 }
+
+export function forwardErrorDigest<T>(
+  result: Result<T>,
+  promise: Promise<any>,
+  thenable: Promise<any>,
+): void {
+  thenable.then(noop, () => {
+    const digest = getErrorDigest(result, thenable);
+    if (digest !== undefined) {
+      setErrorDigest(result, promise, digest);
+    }
+  });
+}

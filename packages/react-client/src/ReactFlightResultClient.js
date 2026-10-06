@@ -404,6 +404,66 @@ function readElement(response: Response, element: ReactElement): any {
   return lazy;
 }
 
+type UninitializedLazyPayload = {
+  status: 'uninitialized',
+  response: Response,
+  lazy: LazyComponent<any, any>,
+  chunk: null,
+};
+
+type InitializedLazyPayload = {
+  status: 'initialized',
+  response: null,
+  lazy: null,
+  chunk: SomeChunk<any>,
+};
+
+function readLazy(
+  payload: UninitializedLazyPayload | InitializedLazyPayload,
+): any {
+  if (payload.status === 'initialized') {
+    return readChunk(payload.chunk);
+  }
+  const response = payload.response;
+  const lazy = payload.lazy;
+  const chunk = createPendingChunk<any>();
+  let model;
+  try {
+    model = lazy._init(lazy._payload);
+  } catch (error) {
+    if (
+      lazy._payload.status !== 'rejected' &&
+      error !== null &&
+      typeof error === 'object' &&
+      typeof (error as any).then === 'function'
+    ) {
+      throw error;
+    }
+    triggerErrorOnChunk(chunk, resolveError(response, lazy._payload, error));
+  }
+  const initializedPayload: InitializedLazyPayload = payload as any;
+  initializedPayload.status = 'initialized';
+  initializedPayload.response = null;
+  initializedPayload.lazy = null;
+  initializedPayload.chunk = chunk;
+  if (chunk.status === PENDING) {
+    try {
+      const promise = preloadModel(response, model);
+      if (promise === null) {
+        initializeModelChunk(response, chunk, model);
+      } else {
+        promise.then(
+          () => initializeModelChunk(response, chunk, model),
+          error => triggerErrorOnChunk(chunk, error),
+        );
+      }
+    } catch (error) {
+      triggerErrorOnChunk(chunk, error);
+    }
+  }
+  return readChunk(chunk);
+}
+
 function readModel(response: Response, value: any): any {
   if (
     value === null ||
@@ -425,6 +485,18 @@ function readModel(response: Response, value: any): any {
 
   if (value.$$typeof === REACT_ELEMENT_TYPE) {
     return readElement(response, value);
+  } else if (value.$$typeof === REACT_LAZY_TYPE) {
+    const lazy: LazyComponent<any, any> = {
+      $$typeof: REACT_LAZY_TYPE,
+      _payload: {status: 'uninitialized', response, lazy: value, chunk: null},
+      _init: readLazy,
+    };
+    if (__DEV__) {
+      lazy._debugInfo = value._debugInfo;
+      lazy._store = value._store;
+    }
+    models.set(value, lazy);
+    return lazy;
   } else if (isArray(value)) {
     const copy: Array<any> = new Array(value.length);
     models.set(value, copy);
@@ -435,6 +507,17 @@ function readModel(response: Response, value: any): any {
     }
     return copy;
   } else {
+    if (typeof value.then === 'function') {
+      const promise = value.then(
+        (model: any) => initializeModel(response, model),
+        (error: mixed) => {
+          throw resolveError(response, value, error);
+        },
+      );
+      promise.catch(noop);
+      models.set(value, promise);
+      return promise;
+    }
     const object: {[key: string]: any} = value;
     const copy: {[key: string]: any} = {};
     models.set(value, copy);
@@ -549,6 +632,18 @@ function initializeModel(response: Response, model: any): any {
   return promise === null
     ? completeModel(response, model)
     : promise.then(() => completeModel(response, model));
+}
+
+function initializeModelChunk<T>(
+  response: Response,
+  chunk: SomeChunk<T>,
+  model: any,
+): void {
+  try {
+    initializeChunk(chunk, completeModel(response, model));
+  } catch (error) {
+    triggerErrorOnChunk(chunk, error);
+  }
 }
 
 function resolveError(

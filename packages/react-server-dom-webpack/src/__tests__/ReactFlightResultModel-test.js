@@ -142,6 +142,59 @@ describe('ReactFlightResult model', () => {
     expect(decoded.html.props.helper()).toBe('hello');
   });
 
+  it.each(['prop', 'root', 'async'])(
+    'preserves a %s rejection and forwards its digest to the consumer',
+    async position => {
+      let reject;
+      const promise = new Promise((resolve, r) => (reject = r));
+      async function AsyncComponent() {
+        return promise;
+      }
+      const model =
+        position === 'prop' ? (
+          {data: promise}
+        ) : position === 'root' ? (
+          promise
+        ) : (
+          <AsyncComponent />
+        );
+      let calls = 0;
+      const result = await serverAct(() =>
+        ReactServerDOMServer.renderToResult(model, {
+          onError() {
+            calls++;
+            return 'digest';
+          },
+        }),
+      );
+      const producerResponse = ReactServerDOMClient.createFromResult(result);
+      const consumerResponse = ReactServerDOMClient.createFromResult(result, {
+        clientManifest: {},
+        serverConsumerManifest: {
+          moduleMap: null,
+          moduleLoading: null,
+          serverModuleMap: null,
+        },
+      });
+      const producer =
+        position === 'prop' ? (await producerResponse).data : producerResponse;
+      const consumer =
+        position === 'prop' ? (await consumerResponse).data : consumerResponse;
+      const error = new Error('failed');
+      await serverAct(() => reject(error));
+      await expect(producer).rejects.toBe(error);
+      const consumerError = await consumer.catch(e => e);
+      expect(consumerError.digest).toBe('digest');
+      expect(consumerError.message).toBe(
+        __DEV__
+          ? 'failed'
+          : 'An error occurred in the Server Components render. The specific message is omitted in production builds to avoid leaking sensitive details. A digest property is included on this error instance which may provide additional details about the nature of the error.',
+      );
+      expect(error.digest).toBe(undefined);
+      expect(calls).toBe(1);
+    },
+  );
+
   it.each(['type', 'prop', 'root'])(
     'waits for a pending client module used as a %s',
     async position => {
@@ -412,9 +465,15 @@ describe('ReactFlightResult model', () => {
     },
   );
 
-  it.each([false, true])(
-    'preserves keyed return slots and cycles (direct first: %s)',
-    async directFirst => {
+  it.each(
+    [false, true].flatMap(directFirst =>
+      ['sync', 'promise', 'async'].map(mode => [directFirst, mode]),
+    ),
+  )(
+    'preserves keyed return slots and cycles (direct first: %s, %s)',
+    async (directFirst, mode) => {
+      let resolve;
+      const promise = new Promise(r => (resolve = r));
       const data = {element: null, component: null};
       const element = (
         <div key="outer" data={data}>
@@ -424,20 +483,26 @@ describe('ReactFlightResult model', () => {
       let calls = 0;
       function Component() {
         calls++;
+        return mode === 'promise' ? promise : element;
+      }
+      async function AsyncComponent() {
+        calls++;
+        await promise;
         return element;
       }
-      const component = <Component />;
+      const component = mode === 'async' ? <AsyncComponent /> : <Component />;
       data.element = element;
       data.component = component;
       Object.freeze(data);
       const model = directFirst
-        ? [element, component, element, component]
-        : [component, element, element, component];
+        ? [element, component, promise, component]
+        : [component, element, promise, component];
 
       const result = await serverAct(() =>
         ReactServerDOMServer.renderToResult(model),
       );
       const expanded = await ReactServerDOMClient.createFromResult(result);
+      await serverAct(() => resolve(element));
 
       const direct = expanded[directFirst ? 0 : 1];
       const returned = readModel(expanded[directFirst ? 1 : 0]);
@@ -451,7 +516,7 @@ describe('ReactFlightResult model', () => {
       expect(direct.props.data.element).toBe(direct);
       expect(readModel(direct.props.data.component)).toBe(returned);
       expect(readModel(expanded[3])).toBe(returned);
-      expect(expanded[2]).toBe(direct);
+      expect(await expanded[2]).toBe(direct);
       expect(calls).toBe(1);
     },
   );
@@ -503,6 +568,140 @@ describe('ReactFlightResult model', () => {
     expect(calls).toBe(2);
   });
 
+  it('expands a shared async Server Component returning a cyclic model', async () => {
+    let resolve;
+    const promise = new Promise(r => (resolve = r));
+    let calls = 0;
+    let siblingCalls = 0;
+    let textCalls = 0;
+    function Sibling() {
+      siblingCalls++;
+      return 'ready';
+    }
+    function Text() {
+      textCalls++;
+      return <span>expanded</span>;
+    }
+    async function Async() {
+      calls++;
+      await promise;
+      return object;
+    }
+    const element = <Async />;
+    const model = Object.freeze({
+      first: element,
+      sibling: <Sibling />,
+      second: element,
+    });
+    const object = {parent: model, self: null, html: <Text />};
+    object.self = object;
+    Object.freeze(object);
+
+    const result = await serverAct(() =>
+      ReactServerDOMServer.renderToResult(model),
+    );
+    const expanded = await ReactServerDOMClient.createFromResult(result);
+    expect(Object.keys(expanded)).toEqual(Object.keys(model));
+    expect(expanded.sibling).toBe('ready');
+    expect(expanded.first).toBe(expanded.second);
+    expect(calls).toBe(1);
+    expect(siblingCalls).toBe(1);
+    expect(textCalls).toBe(0);
+
+    await serverAct(() => resolve());
+    const expandedObject = readModel(expanded.first);
+    expect(expandedObject.parent).toBe(expanded);
+    expect(expandedObject.self).toBe(expandedObject);
+    expect(expandedObject.html).toEqual(<span>expanded</span>);
+    expect(readModel(expandedObject.parent.second)).toBe(expandedObject);
+    expect(calls).toBe(1);
+    expect(siblingCalls).toBe(1);
+    expect(textCalls).toBe(1);
+  });
+
+  it.each([false, true])(
+    'expands a shared Promise in props and component output (component first: %s)',
+    async componentFirst => {
+      let resolve;
+      const promise = new Promise(r => (resolve = r));
+      let calls = 0;
+      function Text() {
+        calls++;
+        return <span>expanded</span>;
+      }
+      function Async() {
+        return promise;
+      }
+      const ClientWrapper = ReactServerDOMServer.registerClientReference(
+        function ClientWrapper() {
+          throw new Error(
+            'A client reference must not be called on the server.',
+          );
+        },
+        'wrapper',
+        'default',
+      );
+      const html = <ClientWrapper data={promise} />;
+      const component = <Async />;
+      const model = Object.freeze(
+        componentFirst
+          ? [component, html, promise]
+          : [html, promise, component],
+      );
+      const object = {parent: model, promise, self: null, html: <Text />};
+      object.self = object;
+      Object.freeze(object);
+
+      const result = await serverAct(() =>
+        ReactServerDOMServer.renderToResult(model),
+      );
+      const expanded = await ReactServerDOMClient.createFromResult(result);
+      const expandedHTML = expanded[componentFirst ? 1 : 0];
+      const expandedPromise = expanded[componentFirst ? 2 : 1];
+      const expandedComponent = expanded[componentFirst ? 0 : 2];
+      expect(expandedHTML.type).toBe(ClientWrapper);
+      expect(expandedHTML.props.data).toBe(expandedPromise);
+      expect(typeof expandedPromise.then).toBe('function');
+      expect(calls).toBe(0);
+
+      await serverAct(() => resolve(object));
+      const value = await expandedPromise;
+      expect(readModel(expandedComponent)).toBe(value);
+      expect(value.parent).toBe(expanded);
+      expect(value.promise).toBe(expandedPromise);
+      expect(value.self).toBe(value);
+      expect(value.html).toEqual(<span>expanded</span>);
+      expect(calls).toBe(1);
+    },
+  );
+
+  it.each([false, true])(
+    'reports a shared Promise rejection once without losing a completed sibling (promise reason: %s)',
+    async promiseReason => {
+      let reject;
+      const promise = new Promise((resolve, r) => (reject = r));
+      const errors = [];
+      const result = await serverAct(() =>
+        ReactServerDOMServer.renderToResult(
+          {first: promise, sibling: <span>ready</span>, second: promise},
+          {
+            onError(error) {
+              errors.push(error);
+            },
+          },
+        ),
+      );
+      const expanded = await ReactServerDOMClient.createFromResult(result);
+      expect(expanded.first).toBe(expanded.second);
+      expect(expanded.sibling).toEqual(<span>ready</span>);
+      const error = promiseReason ? new Promise(() => {}) : new Error('Failed');
+      await serverAct(() => reject(error));
+      await expect(expanded.first).rejects.toBe(error);
+      expect(expanded.sibling).toEqual(<span>ready</span>);
+      expect(errors).toEqual([error]);
+    },
+  );
+
   it('aborts before starting work without calling Server Components', async () => {
     let calls = 0;
     function App() {
@@ -520,6 +719,200 @@ describe('ReactFlightResult model', () => {
     );
     expect(calls).toBe(0);
   });
+
+  it('does not call a throwing onError again for an already rejected promise', async () => {
+    let calls = 0;
+    const sourceError = new Error('source failed');
+    const callbackError = new Error('callback failed');
+    const thenable = {
+      status: 'rejected',
+      reason: sourceError,
+      then() {},
+    };
+    const result = await serverAct(() =>
+      ReactServerDOMServer.renderToResult(
+        {data: thenable},
+        {
+          onError() {
+            calls++;
+            throw callbackError;
+          },
+        },
+      ),
+    );
+    await expect(ReactServerDOMClient.createFromResult(result)).rejects.toBe(
+      callbackError,
+    );
+    expect(calls).toBe(1);
+  });
+
+  it('provides the owner-stack context when a Promise in element props rejects', async () => {
+    let reject;
+    const promise = new Promise((resolve, j) => (reject = j));
+    function App() {
+      return <span data={promise} />;
+    }
+    const stacks = [];
+    const result = await serverAct(() =>
+      ReactServerDOMServer.renderToResult(<App />, {
+        onError() {
+          if (__DEV__) {
+            stacks.push(ReactServer.captureOwnerStack());
+          }
+        },
+      }),
+    );
+    const expanded = await ReactServerDOMClient.createFromResult(result);
+    const error = new Error('Failed');
+    await serverAct(() => reject(error));
+    await expect(expanded.props.data).rejects.toBe(error);
+    if (__DEV__) {
+      expect(typeof stacks[0]).toBe('string');
+    } else {
+      expect(stacks).toEqual([]);
+    }
+  });
+
+  it('aborts a pending Promise after the root model has completed', async () => {
+    let resolve;
+    const promise = new Promise(r => (resolve = r));
+    let signal;
+    let calls = 0;
+    function Text() {
+      calls++;
+      return 'unreachable';
+    }
+    function App() {
+      signal = ReactServer.cacheSignal();
+      return {data: promise, sibling: 'ready'};
+    }
+    const result = await serverAct(() =>
+      ReactServerDOMServer.renderToResult(<App />),
+    );
+    const expanded = await ReactServerDOMClient.createFromResult(result);
+    expect(expanded.sibling).toBe('ready');
+    expect(signal.aborted).toBe(false);
+    const reason = new Error('Timed out');
+    result.abort(reason);
+    await expect(expanded.data).rejects.toBe(reason);
+    expect(signal.aborted).toBe(true);
+    expect(signal.reason).toBe(reason);
+    await serverAct(() => resolve(<Text />));
+    expect(calls).toBe(0);
+  });
+
+  it('preserves a shared cyclic model when a nested Server Component throws', async () => {
+    let resolveFirst;
+    let resolveSecond;
+    const first = new Promise(r => (resolveFirst = r));
+    const second = new Promise(r => (resolveSecond = r));
+    const error = new Error('Failed');
+    let calls = 0;
+    function Throw() {
+      calls++;
+      throw error;
+    }
+    const object = {
+      self: null,
+      before: 'ready',
+      broken: <Throw />,
+      after: 'complete',
+    };
+    object.self = object;
+    Object.freeze(object);
+    async function A() {
+      await first;
+      return object;
+    }
+    async function B() {
+      await second;
+      return object;
+    }
+    const errors = [];
+    const result = await serverAct(() =>
+      ReactServerDOMServer.renderToResult([<A />, <B />], {
+        onError(x) {
+          errors.push(x);
+        },
+      }),
+    );
+    const expanded = await ReactServerDOMClient.createFromResult(result);
+    await serverAct(() => resolveFirst());
+    const value = readModel(expanded[0]);
+    expect(value.self).toBe(value);
+    expect(value.before).toBe('ready');
+    expect(value.after).toBe('complete');
+    expect(() => readModel(value.broken)).toThrow(error);
+    await serverAct(() => resolveSecond());
+    expect(readModel(expanded[1])).toBe(value);
+    expect(errors).toEqual([error]);
+    expect(calls).toBe(1);
+  });
+
+  it.each([undefined, null, 'text', NaN, -0])(
+    'expands a shared async Server Component returning %s once',
+    async value => {
+      let calls = 0;
+      async function App() {
+        calls++;
+        return value;
+      }
+      const element = <App />;
+      const result = await serverAct(() =>
+        ReactServerDOMServer.renderToResult([element, element]),
+      );
+      const expanded = await ReactServerDOMClient.createFromResult(result);
+      expect(expanded[0]).toBe(expanded[1]);
+      expect(readModel(expanded[0])).toBe(value);
+      expect(calls).toBe(1);
+    },
+  );
+
+  it.each([false, true])(
+    'reports an async rejection once without losing a completed sibling (promise reason: %s)',
+    async promiseReason => {
+      let reject;
+      const promise = new Promise((resolve, r) => (reject = r));
+      async function Async() {
+        await promise;
+        return 'unreachable';
+      }
+      function Sibling() {
+        return <span>ready</span>;
+      }
+      const errors = [];
+      const result = await serverAct(() =>
+        ReactServerDOMServer.renderToResult([<Async />, <Sibling />], {
+          onError(error) {
+            errors.push(error);
+          },
+        }),
+      );
+      const expanded = await ReactServerDOMClient.createFromResult(result);
+      const consumer = await ReactServerDOMClient.createFromResult(result, {
+        clientManifest: {},
+        serverConsumerManifest: {
+          moduleMap: null,
+          moduleLoading: null,
+          serverModuleMap: null,
+        },
+      });
+      expect(expanded[1]).toEqual(<span>ready</span>);
+      const error = promiseReason ? new Promise(() => {}) : new Error('Failed');
+      await serverAct(() => reject(error));
+      let reason;
+      try {
+        readModel(expanded[0]);
+      } catch (x) {
+        reason = x;
+      }
+      expect(reason).toBe(error);
+      expect(() => readModel(consumer[0])).toThrow(Error);
+      expect(expanded[1]).toEqual(<span>ready</span>);
+      expect(consumer[1]).toEqual(<span>ready</span>);
+      expect(errors).toEqual([error]);
+    },
+  );
 
   it.each([undefined, null, 'text', NaN, -0])(
     'expands a shared Server Component returning %s once',
@@ -661,10 +1054,13 @@ describe('ReactFlightResult model', () => {
   // Adapted from ReactCache-test.
   it('cacheSignal() aborts when the render finishes normally', async () => {
     let renderedCacheSignal = null;
+    let resolve;
+    const promise = new Promise(r => (resolve = r));
 
-    function Test() {
+    async function Test() {
       renderedCacheSignal = ReactServer.cacheSignal();
       expect(renderedCacheSignal.aborted).toBe(false);
+      await promise;
       return 'Hi';
     }
 
@@ -677,12 +1073,50 @@ describe('ReactFlightResult model', () => {
       }),
     );
 
+    expect(renderedCacheSignal.aborted).toBe(false);
+    await serverAct(() => resolve());
     expect(await ReactServerDOMClient.createFromResult(result)).toBe('Hi');
     expect(errors).toEqual([]);
     expect(renderedCacheSignal.aborted).toBe(true);
     expect(renderedCacheSignal.reason.message).toContain(
       'This render completed successfully.',
     );
+  });
+
+  // Adapted from ReactCache-test.
+  it('cacheSignal() aborts when the render is aborted', async () => {
+    let renderedCacheSignal;
+    let resolve;
+    const promise = new Promise(r => (resolve = r));
+    let calls = 0;
+    function Text() {
+      calls++;
+      return 'Hi';
+    }
+    async function Test() {
+      renderedCacheSignal = ReactServer.cacheSignal();
+      await promise;
+      return <Text />;
+    }
+    const errors = [];
+    const result = await serverAct(() =>
+      ReactServerDOMServer.renderToResult(<Test />, {
+        onError(error) {
+          errors.push(error);
+        },
+      }),
+    );
+    expect(renderedCacheSignal.aborted).toBe(false);
+    const reason = new Error('Timed out');
+    result.abort(reason);
+    await expect(ReactServerDOMClient.createFromResult(result)).rejects.toBe(
+      reason,
+    );
+    expect(renderedCacheSignal.aborted).toBe(true);
+    expect(renderedCacheSignal.reason).toBe(reason);
+    await serverAct(() => resolve());
+    expect(calls).toBe(0);
+    expect(errors).toEqual([]);
   });
 
   // Adapted from react-client's ReactFlight-test.

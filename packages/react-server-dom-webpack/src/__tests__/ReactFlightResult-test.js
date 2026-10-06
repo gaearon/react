@@ -578,7 +578,7 @@ describe('ReactFlightResult', () => {
     expect(container.innerHTML).toBe('<p>Hello World</p>');
   });
 
-  it.skip('should progressively reveal server components', async () => {
+  it('should progressively reveal server components', async () => {
     let reportedErrors = [];
 
     // Client Components
@@ -787,7 +787,7 @@ describe('ReactFlightResult', () => {
     expect(reportedErrors).toEqual([]);
   });
 
-  it.skip('should pass a Promise through props and be able use() it on the client', async () => {
+  it('should pass a Promise through props and be able use() it on the client', async () => {
     async function getData() {
       return 'async hello';
     }
