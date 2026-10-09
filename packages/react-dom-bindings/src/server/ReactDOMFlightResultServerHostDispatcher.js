@@ -20,7 +20,7 @@ import {
   emitHint,
   getHints,
   resolveRequest,
-} from 'react-server/src/ReactFlightServer';
+} from 'react-server/src/ReactFlightResultServer';
 
 import ReactDOMSharedInternals from 'shared/ReactDOMSharedInternals';
 

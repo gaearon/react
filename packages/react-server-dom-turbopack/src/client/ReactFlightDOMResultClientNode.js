@@ -7,39 +7,28 @@
  * @flow
  */
 
-import type {Thenable, ReactCustomFormAction} from 'shared/ReactTypes.js';
-
-import type {
-  DebugChannel,
-  FindSourceMapURLCallback,
-  Response,
-} from 'react-client/src/ReactFlightClient';
-
+import type {Thenable} from 'shared/ReactTypes';
+import type {Result} from 'shared/ReactFlightResult';
+import type {FindSourceMapURLCallback} from 'react-client/src/ReactFlightClient';
+import type {TemporaryReferenceSet} from 'react-client/src/ReactFlightTemporaryReferences';
+import type {EncodeFormActionCallback} from 'react-client/src/ReactFlightReplyClient';
+import type {ClientManifest} from '../server/ReactFlightServerConfigTurbopackBundler';
 import type {
   ServerConsumerModuleMap,
   ModuleLoading,
   ServerManifest,
 } from 'react-client/src/ReactFlightClientConfig';
 
-type ServerConsumerManifest = {
-  moduleMap: ServerConsumerModuleMap,
-  moduleLoading: ModuleLoading,
-  serverModuleMap: null | ServerManifest,
-};
-
-import type {Readable} from 'stream';
-
 import {
   createResponse,
-  createStreamState,
-  getRoot,
-  reportGlobalError,
-  processStringChunk,
-  processBinaryChunk,
-  close,
-} from 'react-client/src/ReactFlightClient';
-
-export * from './ReactFlightDOMClientEdge';
+  readResult,
+  stopReading,
+  addResponseCleanup,
+} from 'react-client/src/ReactFlightResultClient';
+import {
+  isClientReference,
+  resolveClientReferenceMetadata,
+} from '../server/ReactFlightServerConfigTurbopackBundler';
 
 function noServerCall() {
   throw new Error(
@@ -49,95 +38,63 @@ function noServerCall() {
   );
 }
 
-type EncodeFormActionCallback = <A>(
-  id: any,
-  args: Promise<A>,
-) => ReactCustomFormAction;
-
-export type Options = {
+type Options = {
+  clientManifest: ClientManifest,
+  serverConsumerManifest: {
+    moduleMap: ServerConsumerModuleMap,
+    moduleLoading: ModuleLoading,
+    serverModuleMap: null | ServerManifest,
+  },
   nonce?: string,
+  onError?: (mixed) => ?string,
+  signal?: AbortSignal,
   encodeFormAction?: EncodeFormActionCallback,
-  unstable_allowPartialStream?: boolean,
+  temporaryReferences?: TemporaryReferenceSet,
   findSourceMapURL?: FindSourceMapURLCallback,
-  replayConsoleLogs?: boolean,
   environmentName?: string,
-  startTime?: number,
-  endTime?: number,
-  // For the Node.js client we only support a single-direction debug channel.
-  debugChannel?: Readable,
+  unstable_allowPartialStream?: boolean,
 };
 
-function startReadingFromStream(
-  response: Response,
-  stream: Readable,
-  onEnd: () => void,
-): void {
-  const streamState = createStreamState(response, stream);
-
-  stream.on('data', chunk => {
-    if (typeof chunk === 'string') {
-      processStringChunk(response, streamState, chunk);
-    } else {
-      processBinaryChunk(response, streamState, chunk);
-    }
-  });
-
-  stream.on('error', error => {
-    reportGlobalError(response, error);
-  });
-
-  stream.on('end', onEnd);
-}
-
-function createFromNodeStream<T>(
-  stream: Readable,
-  serverConsumerManifest: ServerConsumerManifest,
-  options?: Options,
+export function createFromResult<T>(
+  result: Result<T>,
+  options: Options,
 ): Thenable<T> {
-  const debugChannel: void | DebugChannel =
-    __DEV__ && options && options.debugChannel !== undefined
-      ? {hasReadable: true, callback: null}
-      : undefined;
-
-  const response: Response = createResponse(
+  const clientManifest = options.clientManifest;
+  const serverConsumerManifest = options.serverConsumerManifest;
+  const response = createResponse(
+    result,
     serverConsumerManifest.moduleMap,
     serverConsumerManifest.serverModuleMap,
     serverConsumerManifest.moduleLoading,
-    noServerCall,
-    options ? options.encodeFormAction : undefined,
-    options && typeof options.nonce === 'string' ? options.nonce : undefined,
-    undefined, // TODO: If encodeReply is supported, this should support temporaryReferences
-    options && options.unstable_allowPartialStream
-      ? options.unstable_allowPartialStream
-      : false,
-    __DEV__ && options && options.findSourceMapURL
-      ? options.findSourceMapURL
-      : undefined,
-    __DEV__ && options ? options.replayConsoleLogs === true : false, // defaults to false
-    __DEV__ && options && options.environmentName
-      ? options.environmentName
-      : undefined,
-    __DEV__ && options && options.startTime != null
-      ? options.startTime
-      : undefined,
-    __DEV__ && options && options.endTime != null ? options.endTime : undefined,
-    debugChannel,
-  );
-
-  if (__DEV__ && options && options.debugChannel) {
-    let streamEndedCount = 0;
-    const handleEnd = () => {
-      if (++streamEndedCount === 2) {
-        close(response);
+    value => {
+      if (!isClientReference(value)) {
+        return null;
       }
-    };
-    startReadingFromStream(response, options.debugChannel, handleEnd);
-    startReadingFromStream(response, stream, handleEnd);
-  } else {
-    startReadingFromStream(response, stream, close.bind(null, response));
+      return resolveClientReferenceMetadata(
+        clientManifest,
+        value as any,
+      ) as any;
+    },
+    noServerCall,
+    options.encodeFormAction,
+    options.nonce,
+    options.temporaryReferences,
+    __DEV__ && options ? options.findSourceMapURL : undefined,
+    __DEV__ && options ? options.environmentName : undefined,
+    options.unstable_allowPartialStream === true,
+    options.onError,
+  );
+  const signal = options.signal;
+  if (signal !== undefined) {
+    const onAbort = () => stopReading(response, signal.reason);
+    if (signal.aborted) {
+      onAbort();
+    } else {
+      signal.addEventListener('abort', onAbort, {once: true});
+      addResponseCleanup(response, () =>
+        signal.removeEventListener('abort', onAbort),
+      );
+    }
   }
-
-  return getRoot(response);
+  return readResult(response, result);
 }
-
-export {createFromNodeStream};

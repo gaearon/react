@@ -8,7 +8,7 @@
  */
 
 import type {Dispatcher} from 'react-reconciler/src/ReactInternalTypes';
-import type {Request} from './ReactFlightServer';
+import type {Request} from './ReactFlightResultServer';
 import type {Thenable, Usable, ReactComponentInfo} from 'shared/ReactTypes';
 import type {ThenableState} from './ReactFlightThenable';
 import {

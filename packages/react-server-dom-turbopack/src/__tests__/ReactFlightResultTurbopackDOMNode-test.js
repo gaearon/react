@@ -28,7 +28,7 @@ const streamOptions = {
   objectMode: true,
 };
 
-describe('ReactFlightTurbopackDOMNode', () => {
+describe('ReactFlightResultTurbopackDOMNode', () => {
   beforeEach(() => {
     jest.resetModules();
 
@@ -62,6 +62,31 @@ describe('ReactFlightTurbopackDOMNode', () => {
     Stream = require('stream');
     use = React.use;
   });
+
+  function renderResultToPipeableStream(model, manifest, options) {
+    const result = ReactServerDOMServer.renderToResult(model, options);
+    const stream = ReactServerDOMServer.renderResultToPipeableStream(
+      result,
+      manifest,
+      options,
+    );
+    return {
+      pipe(destination) {
+        destination.on('error', () =>
+          result.abort(
+            new Error('The destination stream errored while writing data.'),
+          ),
+        );
+        destination.on('close', () =>
+          result.abort(new Error('The destination stream closed early.')),
+        );
+        return stream.pipe(destination);
+      },
+      abort(reason) {
+        result.abort(reason);
+      },
+    };
+  }
 
   function readResult(stream) {
     return new Promise((resolve, reject) => {
@@ -136,7 +161,7 @@ describe('ReactFlightTurbopackDOMNode', () => {
     }
 
     const stream = await serverAct(() =>
-      ReactServerDOMServer.renderToPipeableStream(<App />, turbopackMap),
+      renderResultToPipeableStream(<App />, turbopackMap),
     );
     const readable = new Stream.PassThrough();
 
@@ -187,7 +212,7 @@ describe('ReactFlightTurbopackDOMNode', () => {
     const debugReadable = new Stream.PassThrough(streamOptions);
 
     const rscStream = await serverAct(() =>
-      ReactServerDOMServer.renderToPipeableStream(
+      renderResultToPipeableStream(
         ReactServer.createElement(App, null),
         turbopackMap,
         {
@@ -284,7 +309,7 @@ describe('ReactFlightTurbopackDOMNode', () => {
     const {delayedStream, resolveDelayedStream} = createDelayedStream();
 
     const rscStream = await serverAct(() =>
-      ReactServerDOMServer.renderToPipeableStream(
+      renderResultToPipeableStream(
         ReactServer.createElement(App, null),
         turbopackMap,
         {

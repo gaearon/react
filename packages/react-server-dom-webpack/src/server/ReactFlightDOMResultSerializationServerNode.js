@@ -9,25 +9,18 @@
 
 import type {
   Request,
-  ReactClientValue,
-} from 'react-server/src/ReactFlightServer';
+  Input,
+} from 'react-server/src/ReactFlightResultSerializationServer';
 import type {Destination} from 'react-server/src/ReactServerStreamConfigNode';
 import type {ClientManifest} from './ReactFlightServerConfigWebpackBundler';
-import type {ServerManifest} from 'react-client/src/ReactFlightClientConfig';
-import type {Busboy} from 'busboy';
 import type {Writable} from 'stream';
-import type {Thenable} from 'shared/ReactTypes';
 
 import type {Duplex} from 'stream';
 
 import {Readable} from 'stream';
 
-import noop from 'shared/noop';
-import {ASYNC_ITERATOR} from 'shared/ReactSymbols';
-
 import {
   createRequest,
-  createPrerenderRequest,
   startWork,
   startFlowing,
   startFlowingDebug,
@@ -36,30 +29,7 @@ import {
   attachAbortSignal,
   resolveDebugMessage,
   closeDebugChannel,
-} from 'react-server/src/ReactFlightServer';
-
-import {
-  createResponse,
-  reportGlobalError,
-  close,
-  resolveField,
-  resolveFile,
-  resolveFileInfo,
-  resolveFileChunk,
-  resolveFileComplete,
-  getRoot,
-} from 'react-server/src/ReactFlightReplyServer';
-
-import {
-  decodeAction,
-  decodeFormState,
-} from 'react-server/src/ReactFlightActionServer';
-
-export {
-  registerServerReference,
-  registerClientReference,
-  createClientModuleProxy,
-} from '../ReactFlightWebpackReferences';
+} from 'react-server/src/ReactFlightResultSerializationServer';
 
 import {
   createStringDecoder,
@@ -70,11 +40,6 @@ import {
 import {textEncoder} from 'react-server/src/ReactServerStreamConfigNode';
 
 import type {TemporaryReferenceSet} from 'react-server/src/ReactFlightServerTemporaryReferences';
-import type {FileHandle} from 'react-server/src/ReactFlightReplyServer';
-
-export {createTemporaryReferenceSet} from 'react-server/src/ReactFlightServerTemporaryReferences';
-
-export type {TemporaryReferenceSet};
 
 function createDrainHandler(destination: Destination, request: Request) {
   return () => startFlowing(request, destination);
@@ -148,23 +113,22 @@ function startReadingFromDebugChannelReadable(
   }
 }
 
-type Options = {
+export type Options = {
   debugChannel?: Readable | Writable | Duplex | WebSocket,
   environmentName?: string | (() => string),
   filterStackFrame?: (url: string, functionName: string) => boolean,
   onError?: (error: mixed) => void,
-  identifierPrefix?: string,
   temporaryReferences?: TemporaryReferenceSet,
   startTime?: number,
 };
 
-type PipeableStream = {
+export type PipeableStream = {
   abort(reason: mixed): void,
   pipe<T: Writable>(destination: T): T,
 };
 
-function renderToPipeableStream(
-  model: ReactClientValue,
+export function renderToPipeableStream(
+  input: Input,
   webpackMap: ClientManifest,
   options?: Options,
 ): PipeableStream {
@@ -188,10 +152,9 @@ function renderToPipeableStream(
           : undefined
       : undefined;
   const request = createRequest(
-    model,
+    input,
     webpackMap,
     options ? options.onError : undefined,
-    options ? options.identifierPrefix : undefined,
     options ? options.temporaryReferences : undefined,
     options ? options.startTime : undefined,
     __DEV__ && options ? options.environmentName : undefined,
@@ -330,13 +293,15 @@ function startReadingFromDebugChannelReadableStream(
   reader.read().then(progress).catch(error);
 }
 
-function renderToReadableStream(
-  model: ReactClientValue,
+export type ReadableStreamOptions = Omit<Options, 'debugChannel'> & {
+  debugChannel?: {readable?: ReadableStream, writable?: WritableStream, ...},
+  signal?: AbortSignal,
+};
+
+export function renderToReadableStream(
+  input: Input,
   webpackMap: ClientManifest,
-  options?: Omit<Options, 'debugChannel'> & {
-    debugChannel?: {readable?: ReadableStream, writable?: WritableStream, ...},
-    signal?: AbortSignal,
-  },
+  options?: ReadableStreamOptions,
 ): ReadableStream {
   const debugChannelReadable =
     __DEV__ && options && options.debugChannel
@@ -347,10 +312,9 @@ function renderToReadableStream(
       ? options.debugChannel.writable
       : undefined;
   const request = createRequest(
-    model,
+    input,
     webpackMap,
     options ? options.onError : undefined,
-    options ? options.identifierPrefix : undefined,
     options ? options.temporaryReferences : undefined,
     options ? options.startTime : undefined,
     __DEV__ && options ? options.environmentName : undefined,
@@ -404,357 +368,3 @@ function renderToReadableStream(
   );
   return stream;
 }
-
-function createFakeWritableFromNodeReadable(readable: any): Writable {
-  // The current host config expects a Writable so we create
-  // a fake writable for now to push into the Readable.
-  return {
-    write(chunk: string | Uint8Array) {
-      return readable.push(chunk);
-    },
-    end() {
-      readable.push(null);
-    },
-    destroy(error) {
-      readable.destroy(error);
-    },
-  } as any;
-}
-
-type PrerenderOptions = {
-  environmentName?: string | (() => string),
-  filterStackFrame?: (url: string, functionName: string) => boolean,
-  onError?: (error: mixed) => void,
-  identifierPrefix?: string,
-  temporaryReferences?: TemporaryReferenceSet,
-  signal?: AbortSignal,
-  startTime?: number,
-};
-
-type StaticResult = {
-  prelude: Readable,
-};
-
-function prerenderToNodeStream(
-  model: ReactClientValue,
-  webpackMap: ClientManifest,
-  options?: PrerenderOptions,
-): Promise<StaticResult> {
-  return new Promise((resolve, reject) => {
-    const onFatalError = reject;
-    function onAllReady() {
-      const readable: Readable = new Readable({
-        read() {
-          startFlowing(request, writable);
-        },
-      });
-      const writable = createFakeWritableFromNodeReadable(readable);
-      resolve({prelude: readable});
-    }
-
-    const request = createPrerenderRequest(
-      model,
-      webpackMap,
-      onAllReady,
-      onFatalError,
-      options ? options.onError : undefined,
-      options ? options.identifierPrefix : undefined,
-      options ? options.temporaryReferences : undefined,
-      options ? options.startTime : undefined,
-      __DEV__ && options ? options.environmentName : undefined,
-      __DEV__ && options ? options.filterStackFrame : undefined,
-      false,
-    );
-    if (options && options.signal) {
-      attachAbortSignal(request, options.signal);
-    }
-    startWork(request);
-  });
-}
-
-function prerender(
-  model: ReactClientValue,
-  webpackMap: ClientManifest,
-  options?: Options & {
-    signal?: AbortSignal,
-  },
-): Promise<{
-  prelude: ReadableStream,
-}> {
-  return new Promise((resolve, reject) => {
-    const onFatalError = reject;
-    function onAllReady() {
-      let writable: Writable;
-      const stream = new ReadableStream(
-        {
-          type: 'bytes',
-          start: (controller): ?Promise<void> => {
-            writable =
-              createFakeWritableFromReadableStreamController(controller);
-          },
-          pull: (controller): ?Promise<void> => {
-            startFlowing(request, writable);
-          },
-          cancel: (reason): ?Promise<void> => {
-            stopFlowing(request);
-            abort(request, reason);
-          },
-        },
-        // $FlowFixMe[prop-missing] size() methods are not allowed on byte streams.
-        // $FlowFixMe[incompatible-type]
-        {highWaterMark: 0},
-      );
-      resolve({prelude: stream});
-    }
-    const request = createPrerenderRequest(
-      model,
-      webpackMap,
-      onAllReady,
-      onFatalError,
-      options ? options.onError : undefined,
-      options ? options.identifierPrefix : undefined,
-      options ? options.temporaryReferences : undefined,
-      options ? options.startTime : undefined,
-      __DEV__ && options ? options.environmentName : undefined,
-      __DEV__ && options ? options.filterStackFrame : undefined,
-      false,
-    );
-    if (options && options.signal) {
-      attachAbortSignal(request, options.signal);
-    }
-    startWork(request);
-  });
-}
-
-type PendingFile = {
-  name: string,
-  file: FileHandle,
-  complete: boolean,
-  // Lazily allocated when a text field arrives after this file's 'file'
-  // event but before its (deferred) 'end' event. Stored as flat
-  // [name1, value1, name2, value2, ...] pairs.
-  queuedFields: null | Array<string>,
-  next: null | PendingFile,
-};
-
-function decodeReplyFromBusboy<T>(
-  busboyStream: Busboy,
-  webpackMap: ServerManifest,
-  options?: {
-    temporaryReferences?: TemporaryReferenceSet,
-    arraySizeLimit?: number,
-  },
-): Thenable<T> {
-  const response = createResponse(
-    webpackMap,
-    '',
-    options ? options.temporaryReferences : undefined,
-    undefined,
-    options ? options.arraySizeLimit : undefined,
-  );
-
-  // Linked list of pending files in arrival (payload) order. Text fields that
-  // arrive while a file is in flight are queued on the tail file's
-  // `queuedFields` so they can be resolved together when that file completes.
-  // Fields that arrive while the list is empty bypass it and resolve
-  // immediately. This makes the backing FormData's insertion order match the
-  // payload's entry order.
-  let head: null | PendingFile = null;
-  let tail: null | PendingFile = null;
-  let bodyFinished = false;
-  let closed = false;
-
-  function flush() {
-    while (head !== null) {
-      const current = head;
-      if (!current.complete) {
-        // This file is still streaming. Hold later files and fields until it
-        // completes so the backing FormData reflects payload order.
-        return;
-      }
-      try {
-        resolveFileComplete(response, current.name, current.file);
-        const queuedFields = current.queuedFields;
-        if (queuedFields !== null) {
-          for (let i = 0; i < queuedFields.length; i += 2) {
-            resolveField(response, queuedFields[i], queuedFields[i + 1]);
-          }
-        }
-      } catch (error) {
-        busboyStream.destroy(error);
-        return;
-      }
-      head = current.next;
-    }
-    tail = null;
-    if (bodyFinished && !closed) {
-      closed = true;
-      close(response);
-    }
-  }
-
-  busboyStream.on('field', (name, value) => {
-    if (tail !== null) {
-      // A file is in flight; queue the field on the tail (most recent) pending
-      // file so it resolves after that file, preserving payload order.
-      if (tail.queuedFields === null) {
-        tail.queuedFields = [];
-      }
-      tail.queuedFields.push(name, value);
-    } else {
-      try {
-        resolveField(response, name, value);
-      } catch (error) {
-        busboyStream.destroy(error);
-      }
-    }
-  });
-  busboyStream.on('file', (name, value, {filename, encoding, mimeType}) => {
-    if (encoding.toLowerCase() === 'base64') {
-      busboyStream.destroy(
-        new Error(
-          "React doesn't accept base64 encoded file uploads because we don't expect " +
-            "form data passed from a browser to ever encode data that way. If that's " +
-            'the wrong assumption, we can easily fix it.',
-        ),
-      );
-      return;
-    }
-    const file = resolveFileInfo(response, name, filename, mimeType);
-    const pendingFile: PendingFile = {
-      name,
-      file,
-      complete: false,
-      queuedFields: null,
-      next: null,
-    };
-    if (tail === null) {
-      head = pendingFile;
-    } else {
-      tail.next = pendingFile;
-    }
-    tail = pendingFile;
-    value.on('data', chunk => {
-      try {
-        resolveFileChunk(response, file, chunk);
-      } catch (error) {
-        busboyStream.destroy(error);
-      }
-    });
-    value.on('error', error => {
-      busboyStream.destroy(error);
-    });
-    value.on('end', () => {
-      pendingFile.complete = true;
-      flush();
-    });
-  });
-  busboyStream.on('finish', () => {
-    bodyFinished = true;
-    flush();
-    if (!closed) {
-      // Invariant: busboy delays 'finish' until every file's 'end' event has
-      // fired, so the flush above should always close the response.
-      reportGlobalError(
-        response,
-        new Error('Reply finished with incomplete file part.'),
-      );
-    }
-  });
-  busboyStream.on('error', err => {
-    reportGlobalError(
-      response,
-      // $FlowFixMe[incompatible-call] types Error and mixed are incompatible
-      // $FlowFixMe[incompatible-type]
-      err,
-    );
-  });
-  return getRoot(response);
-}
-
-function decodeReply<T>(
-  body: string | FormData,
-  webpackMap: ServerManifest,
-  options?: {
-    temporaryReferences?: TemporaryReferenceSet,
-    arraySizeLimit?: number,
-  },
-): Thenable<T> {
-  if (typeof body === 'string') {
-    const form = new FormData();
-    form.append('0', body);
-    body = form;
-  }
-  const response = createResponse(
-    webpackMap,
-    '',
-    options ? options.temporaryReferences : undefined,
-    body,
-    options ? options.arraySizeLimit : undefined,
-  );
-  const root = getRoot<T>(response);
-  close(response);
-  return root;
-}
-
-function decodeReplyFromAsyncIterable<T>(
-  iterable: AsyncIterable<[string, string | File]>,
-  webpackMap: ServerManifest,
-  options?: {
-    temporaryReferences?: TemporaryReferenceSet,
-    arraySizeLimit?: number,
-  },
-): Thenable<T> {
-  const iterator: AsyncIterator<[string, string | File]> =
-    iterable[ASYNC_ITERATOR]();
-
-  const response = createResponse(
-    webpackMap,
-    '',
-    options ? options.temporaryReferences : undefined,
-    undefined,
-    options ? options.arraySizeLimit : undefined,
-  );
-
-  function progress(
-    entry:
-      | {done: false, +value: [string, string | File], ...}
-      | {done: true, +value: void, ...},
-  ) {
-    if (entry.done) {
-      close(response);
-    } else {
-      const [name, value] = entry.value;
-      if (typeof value === 'string') {
-        resolveField(response, name, value);
-      } else {
-        resolveFile(response, name, value);
-      }
-      iterator.next().then(progress, error);
-    }
-  }
-  function error(reason: Error) {
-    reportGlobalError(response, reason);
-    if (typeof (iterator as any).throw === 'function') {
-      // The iterator protocol doesn't necessarily include this but a generator do.
-      // $FlowFixMe[prop-missing] should be able to pass mixed
-      iterator.throw(reason).then(noop, noop);
-    }
-  }
-
-  iterator.next().then(progress, error);
-
-  return getRoot(response);
-}
-
-export {
-  renderToReadableStream,
-  renderToPipeableStream,
-  prerender,
-  prerenderToNodeStream,
-  decodeReply,
-  decodeReplyFromBusboy,
-  decodeReplyFromAsyncIterable,
-  decodeAction,
-  decodeFormState,
-};
